@@ -4,7 +4,7 @@ import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { dictionaries, type Lang, type TextKey } from "./i18n";
 
-type Page = "home" | "instances" | "mods" | "settings";
+type Page = "home" | "instances" | "mods" | "settings" | "minecraft";
 type Theme = "dark" | "light" | "amoled";
 
 type HardwareInfo = {
@@ -16,6 +16,13 @@ type HardwareInfo = {
   osVersion: string | null;
   hostName: string | null;
   gpuName: string | null;
+};
+
+type MinecraftVersion = {
+  id: string;
+  versionType: string;
+  releaseTime: string;
+  url: string;
 };
 
 function loadSetting<T extends string>(
@@ -47,6 +54,11 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState(false);
+  const [versions, setVersions] = useState<MinecraftVersion[]>([]);
+  const [selectedVersion, setSelectedVersion] = useState("");
+  const [versionFilter, setVersionFilter] = useState<"release" | "snapshot">("release");
+  const [loadingVersions, setLoadingVersions] = useState(false);
+  const [versionsError, setVersionsError] = useState("");
 
   const t = (key: TextKey) => dictionaries[lang][key];
 
@@ -64,6 +76,40 @@ function App() {
       setScanning(false);
     }
   }
+
+  async function loadVersions() {
+  setLoadingVersions(true);
+  setVersionsError("");
+
+  try {
+    const data = await invoke<MinecraftVersion[]>(
+      "get_minecraft_versions"
+    );
+
+    setVersions(data);
+
+    const latestRelease = data.find(
+      (version) => version.versionType === "release"
+    );
+
+    setSelectedVersion(
+      latestRelease?.id ?? data[0]?.id ?? ""
+    );
+  } catch (error) {
+    console.error("Minecraft versions error:", error);
+    setVersionsError(String(error));
+  } finally {
+    setLoadingVersions(false);
+  }
+}
+
+ useEffect(() => {
+     if (page !== "minecraft" || versions.length > 0) {
+     return;
+    }
+
+   void loadVersions();
+  }, [page]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -114,11 +160,12 @@ function App() {
   }, []);
 
   const menu: { id: Page; label: TextKey }[] = [
-    { id: "home", label: "home" },
-    { id: "instances", label: "instances" },
-    { id: "mods", label: "mods" },
-    { id: "settings", label: "settings" },
-  ];
+  { id: "home", label: "home" },
+  { id: "minecraft", label: "minecraft" },
+  { id: "instances", label: "instances" },
+  { id: "mods", label: "mods" },
+  { id: "settings", label: "settings" },
+];
 
   const themes: Theme[] = ["dark", "light", "amoled"];
 
@@ -242,6 +289,111 @@ function App() {
             </div>
           )}
 
+{page === "minecraft" && (
+  <section className="max-w-3xl">
+    <h1 className="mb-2 text-3xl font-bold">
+      {t("minecraft")}
+    </h1>
+
+    <p className="mb-6 text-muted">
+      {t("versionSelection")}
+    </p>
+
+    <div className="mb-5 flex flex-wrap gap-2">
+      <button
+        onClick={() => setVersionFilter("release")}
+        className={`rounded-lg px-4 py-2 ${
+          versionFilter === "release"
+            ? "bg-accent text-white"
+            : "bg-panel text-fg"
+        }`}
+      >
+        {t("release")}
+      </button>
+
+      <button
+        onClick={() => setVersionFilter("snapshot")}
+        className={`rounded-lg px-4 py-2 ${
+          versionFilter === "snapshot"
+            ? "bg-accent text-white"
+            : "bg-panel text-fg"
+        }`}
+      >
+        {t("snapshot")}
+      </button>
+
+      <button
+        onClick={loadVersions}
+        disabled={loadingVersions}
+        className="rounded-lg bg-panel px-4 py-2 text-fg disabled:opacity-50"
+      >
+        {loadingVersions
+          ? t("loadingVersions")
+          : t("refreshVersions")}
+      </button>
+    </div>
+
+    {loadingVersions && (
+      <p className="text-muted">{t("loadingVersions")}</p>
+    )}
+
+    {versionsError && (
+      <p className="mb-4 text-red-400">
+        {t("versionsError")} {versionsError}
+      </p>
+    )}
+
+    {!loadingVersions && versions.length > 0 && (
+      <>
+        <label className="mb-2 block text-sm text-muted">
+          {t("chooseVersion")}
+        </label>
+
+        <select
+          value={selectedVersion}
+          onChange={(e) => setSelectedVersion(e.target.value)}
+          className="mb-5 w-full rounded-lg bg-panel px-4 py-3 text-fg"
+        >
+          {versions
+            .filter((version) =>
+              versionFilter === "release"
+                ? version.versionType === "release"
+                : version.versionType === "snapshot"
+            )
+            .slice(0, 50)
+            .map((version) => (
+              <option key={version.id} value={version.id}>
+                {version.id}
+              </option>
+            ))}
+        </select>
+
+        <div className="rounded-xl border border-white/10 bg-panel p-5">
+          <p className="mb-2 text-sm text-muted">
+            {t("selectedVersion")}
+          </p>
+
+          <h2 className="text-2xl font-bold">
+            Minecraft {selectedVersion || "—"}
+          </h2>
+
+          <p className="mt-2 text-sm text-muted">
+            {t("releaseDate")}:{" "}
+            {versions.find((v) => v.id === selectedVersion)
+              ? new Date(
+                  versions.find((v) => v.id === selectedVersion)!.releaseTime
+                ).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-US")
+              : "—"}
+          </p>
+
+          <div className="mt-5 rounded-lg bg-bg p-4 text-sm text-muted">
+            {t("installComingSoon")}
+          </div>
+        </div>
+      </>
+    )}
+  </section>
+)}
           {page === "instances" && (
             <div>
               <h1 className="mb-2 text-3xl font-bold">{t("instances")}</h1>

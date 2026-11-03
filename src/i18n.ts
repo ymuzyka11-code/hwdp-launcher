@@ -30,6 +30,17 @@ const en = {
   unavailable: "Unavailable",
   scanError: "Could not scan your computer.",
   loading: "Preparing your launcher...",
+  minecraft: "Minecraft",
+  versionSelection: "Version selection",
+  chooseVersion: "Choose a Minecraft version",
+  release: "Release",
+  snapshot: "Snapshot",
+  refreshVersions: "Refresh versions",
+  loadingVersions: "Loading versions...",
+  versionsError: "Could not load Minecraft versions.",
+  selectedVersion: "Selected version",
+  installComingSoon: "Game installation will be added in the next step.",
+  releaseDate: "Release date",
 };
 
 const pl: Record<keyof typeof en, string> = {
@@ -61,6 +72,17 @@ const pl: Record<keyof typeof en, string> = {
   unavailable: "Niedostępne",
   scanError: "Nie udało się przeskanować komputera.",
   loading: "Przygotowywanie launchera...",
+  minecraft: "Minecraft",
+  versionSelection: "Wybór wersji",
+  chooseVersion: "Wybierz wersję Minecrafta",
+  release: "Wydanie stabilne",
+  snapshot: "Migawka",
+  refreshVersions: "Odśwież wersje",
+  loadingVersions: "Pobieranie wersji...",
+  versionsError: "Nie udało się pobrać wersji Minecrafta.",
+  selectedVersion: "Wybrana wersja",
+  installComingSoon: "Instalowanie gry dodamy w następnym kroku.",
+  releaseDate: "Data wydania",
 };
 
 export const dictionaries = { en, pl };
