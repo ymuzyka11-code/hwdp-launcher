@@ -126,6 +126,15 @@ struct ClientDownload {
     size: u64,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DownloadResult {
+    version_id: String,
+    file_path: String,
+    file_size: u64,
+    sha1_verified: bool,
+}
+
 #[tauri::command]
 async fn get_minecraft_versions() -> Result<Vec<MinecraftVersion>, String> {
     let response = reqwest::get(
@@ -191,6 +200,112 @@ async fn get_version_details(version_id: String) -> Result<VersionDetails, Strin
     Ok(details)
 }
 
+#[tauri::command]
+async fn download_minecraft_client(
+    version_id: String,
+) -> Result<DownloadResult, String> {
+    // Pobranie oficjalnego manifestu Mojang
+    let manifest_response = reqwest::get(
+        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+    )
+    .await
+    .map_err(|error| error.to_string())?;
+
+    if !manifest_response.status().is_success() {
+        return Err("Nie udało się pobrać manifestu Minecrafta.".to_string());
+    }
+
+    let manifest: VersionManifest = manifest_response
+        .json()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    // Znalezienie wybranej wersji
+    let version = manifest
+        .versions
+        .iter()
+        .find(|version| version.id == version_id)
+        .ok_or_else(|| "Nie znaleziono wybranej wersji.".to_string())?;
+
+    let details_response = reqwest::get(&version.url)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !details_response.status().is_success() {
+        return Err("Nie udało się pobrać metadanych wersji.".to_string());
+    }
+
+    let details: VersionDetails = details_response
+        .json()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    // Sprawdzenie nazwy wersji przed użyciem jej w ścieżce
+    if !details.id.chars().all(|c| {
+        c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'
+    }) {
+        return Err("Nieprawidłowy identyfikator wersji.".to_string());
+    }
+
+    // Pobranie pliku klienta
+    let response = reqwest::get(&details.downloads.client.url)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !response.status().is_success() {
+        return Err("Nie udało się pobrać pliku Minecrafta.".to_string());
+    }
+
+    let bytes = response
+        .bytes()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    // Weryfikacja rozmiaru i SHA-1
+    let actual_size = bytes.len() as u64;
+
+    if actual_size != details.downloads.client.size {
+        return Err("Rozmiar pobranego pliku jest nieprawidłowy.".to_string());
+    }
+
+    use sha1::{Digest, Sha1};
+
+    let mut hasher = Sha1::new();
+    hasher.update(&bytes);
+    let actual_sha1 = format!("{:x}", hasher.finalize());
+
+    if actual_sha1 != details.downloads.client.sha1.to_lowercase() {
+        return Err("Weryfikacja SHA-1 nie powiodła się.".to_string());
+    }
+
+    // Folder danych launchera w AppData
+    let app_data = std::env::var("APPDATA")
+        .map_err(|_| "Nie znaleziono folderu AppData.".to_string())?;
+
+    let version_dir = std::path::PathBuf::from(app_data)
+        .join("HWDP Launcher")
+        .join("versions")
+        .join(&details.id);
+
+    std::fs::create_dir_all(&version_dir)
+        .map_err(|error| error.to_string())?;
+
+    let file_path = version_dir.join("client.jar");
+    let temporary_path = version_dir.join("client.jar.tmp");
+
+    std::fs::write(&temporary_path, &bytes)
+        .map_err(|error| error.to_string())?;
+
+    std::fs::rename(&temporary_path, &file_path)
+        .map_err(|error| error.to_string())?;
+
+    Ok(DownloadResult {
+        version_id: details.id,
+        file_path: file_path.to_string_lossy().to_string(),
+        file_size: actual_size,
+        sha1_verified: true,
+    })
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -199,7 +314,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_hardware_info,
             get_minecraft_versions,
-            get_version_details
+            get_version_details,
+            download_minecraft_client
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
