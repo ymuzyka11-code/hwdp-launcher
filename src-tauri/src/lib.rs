@@ -1,5 +1,5 @@
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::process::Command;
 use sysinfo::{CpuRefreshKind, System};
 
@@ -77,12 +77,71 @@ fn get_hardware_info() -> HardwareInfo {
     }
 }
 
+// Dane pobierane z oficjalnego manifestu Mojang.
+
+#[derive(Deserialize)]
+struct VersionManifest {
+    versions: Vec<ManifestVersion>,
+}
+
+#[derive(Deserialize)]
+struct ManifestVersion {
+    id: String,
+
+    #[serde(rename = "type")]
+    version_type: String,
+
+    #[serde(rename = "releaseTime")]
+    release_time: String,
+
+    url: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MinecraftVersion {
+    id: String,
+    version_type: String,
+    release_time: String,
+    url: String,
+}
+
+#[tauri::command]
+async fn get_minecraft_versions() -> Result<Vec<MinecraftVersion>, String> {
+    let response = reqwest::get(
+        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+    )
+    .await
+    .map_err(|error| format!("Connection error: {error}"))?;
+
+    let manifest: VersionManifest = response
+        .error_for_status()
+        .map_err(|error| format!("Server error: {error}"))?
+        .json()
+        .await
+        .map_err(|error| format!("Invalid manifest: {error}"))?;
+
+    Ok(
+        manifest
+            .versions
+            .into_iter()
+            .map(|version| MinecraftVersion {
+                id: version.id,
+                version_type: version.version_type,
+                release_time: version.release_time,
+                url: version.url,
+            })
+            .collect()
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
-            get_hardware_info
+            get_hardware_info,
+            get_minecraft_versions
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
