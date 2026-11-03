@@ -135,6 +135,15 @@ struct DownloadResult {
     sha1_verified: bool,
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct DownloadProgress {
+    version_id: String,
+    downloaded: u64,
+    total: u64,
+    percentage: u8,
+}
+
 #[tauri::command]
 async fn get_minecraft_versions() -> Result<Vec<MinecraftVersion>, String> {
     let response = reqwest::get(
@@ -202,83 +211,63 @@ async fn get_version_details(version_id: String) -> Result<VersionDetails, Strin
 
 #[tauri::command]
 async fn download_minecraft_client(
+    app: tauri::AppHandle,
     version_id: String,
 ) -> Result<DownloadResult, String> {
-    // Pobranie oficjalnego manifestu Mojang
-    let manifest_response = reqwest::get(
-        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-    )
-    .await
-    .map_err(|error| error.to_string())?;
+    use sha1::{Digest, Sha1};
+    use std::io::Write;
+    use tauri::Emitter;
+
+    let manifest_url =
+        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+    let manifest_response = reqwest::get(manifest_url)
+        .await
+        .map_err(|e| e.to_string())?;
 
     if !manifest_response.status().is_success() {
-        return Err("Nie udało się pobrać manifestu Minecrafta.".to_string());
+        return Err("Nie udało się pobrać manifestu.".to_string());
     }
 
     let manifest: VersionManifest = manifest_response
         .json()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|e| e.to_string())?;
 
-    // Znalezienie wybranej wersji
-    let version = manifest
-        .versions
+    let version = manifest.versions
         .iter()
-        .find(|version| version.id == version_id)
-        .ok_or_else(|| "Nie znaleziono wybranej wersji.".to_string())?;
+        .find(|v| v.id == version_id)
+        .ok_or_else(|| "Nie znaleziono wersji.".to_string())?;
 
     let details_response = reqwest::get(&version.url)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|e| e.to_string())?;
 
     if !details_response.status().is_success() {
-        return Err("Nie udało się pobrać metadanych wersji.".to_string());
+        return Err("Nie udało się pobrać metadanych.".to_string());
     }
 
     let details: VersionDetails = details_response
         .json()
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|e| e.to_string())?;
 
-    // Sprawdzenie nazwy wersji przed użyciem jej w ścieżce
     if !details.id.chars().all(|c| {
         c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'
     }) {
         return Err("Nieprawidłowy identyfikator wersji.".to_string());
     }
 
-    // Pobranie pliku klienta
+    let total = details.downloads.client.size;
+
     let response = reqwest::get(&details.downloads.client.url)
         .await
-        .map_err(|error| error.to_string())?;
+        .map_err(|e| e.to_string())?;
 
     if !response.status().is_success() {
         return Err("Nie udało się pobrać pliku Minecrafta.".to_string());
     }
 
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|error| error.to_string())?;
-
-    // Weryfikacja rozmiaru i SHA-1
-    let actual_size = bytes.len() as u64;
-
-    if actual_size != details.downloads.client.size {
-        return Err("Rozmiar pobranego pliku jest nieprawidłowy.".to_string());
-    }
-
-    use sha1::{Digest, Sha1};
-
-    let mut hasher = Sha1::new();
-    hasher.update(&bytes);
-    let actual_sha1 = format!("{:x}", hasher.finalize());
-
-    if actual_sha1 != details.downloads.client.sha1.to_lowercase() {
-        return Err("Weryfikacja SHA-1 nie powiodła się.".to_string());
-    }
-
-    // Folder danych launchera w AppData
     let app_data = std::env::var("APPDATA")
         .map_err(|_| "Nie znaleziono folderu AppData.".to_string())?;
 
@@ -288,21 +277,87 @@ async fn download_minecraft_client(
         .join(&details.id);
 
     std::fs::create_dir_all(&version_dir)
-        .map_err(|error| error.to_string())?;
+        .map_err(|e| e.to_string())?;
 
     let file_path = version_dir.join("client.jar");
     let temporary_path = version_dir.join("client.jar.tmp");
 
-    std::fs::write(&temporary_path, &bytes)
-        .map_err(|error| error.to_string())?;
+    let mut file = std::fs::File::create(&temporary_path)
+        .map_err(|e| e.to_string())?;
+
+    let mut downloaded: u64 = 0;
+    let mut hasher = Sha1::new();
+    let mut response = response;
+
+    let _ = app.emit(
+        "minecraft-download-progress",
+        DownloadProgress {
+            version_id: details.id.clone(),
+            downloaded: 0,
+            total,
+            percentage: 0,
+        },
+    );
+
+    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
+        file.write_all(&chunk).map_err(|e| e.to_string())?;
+
+        hasher.update(&chunk);
+        downloaded += chunk.len() as u64;
+
+        let percentage = if total > 0 {
+            ((downloaded.saturating_mul(100) / total).min(100)) as u8
+        } else {
+            0
+        };
+
+        let _ = app.emit(
+            "minecraft-download-progress",
+            DownloadProgress {
+                version_id: details.id.clone(),
+                downloaded,
+                total,
+                percentage,
+            },
+        );
+    }
+
+    file.flush().map_err(|e| e.to_string())?;
+    drop(file);
+
+    if downloaded != total {
+        let _ = std::fs::remove_file(&temporary_path);
+        return Err("Rozmiar pobranego pliku jest nieprawidłowy.".to_string());
+    }
+
+    let actual_sha1 = format!("{:x}", hasher.finalize());
+
+    if actual_sha1 != details.downloads.client.sha1.to_lowercase() {
+        let _ = std::fs::remove_file(&temporary_path);
+        return Err("Weryfikacja SHA-1 nie powiodła się.".to_string());
+    }
+
+    if file_path.exists() {
+        std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
+    }
 
     std::fs::rename(&temporary_path, &file_path)
-        .map_err(|error| error.to_string())?;
+        .map_err(|e| e.to_string())?;
+
+    let _ = app.emit(
+        "minecraft-download-progress",
+        DownloadProgress {
+            version_id: details.id.clone(),
+            downloaded,
+            total,
+            percentage: 100,
+        },
+    );
 
     Ok(DownloadResult {
         version_id: details.id,
         file_path: file_path.to_string_lossy().to_string(),
-        file_size: actual_size,
+        file_size: downloaded,
         sha1_verified: true,
     })
 }
