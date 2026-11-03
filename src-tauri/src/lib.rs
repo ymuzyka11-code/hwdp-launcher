@@ -106,6 +106,26 @@ struct MinecraftVersion {
     url: String,
 }
 
+#[derive(Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct VersionDetails {
+    id: String,
+    main_class: String,
+    downloads: VersionDownloads,
+}
+
+#[derive(Serialize, serde::Deserialize)]
+struct VersionDownloads {
+    client: ClientDownload,
+}
+
+#[derive(Serialize, serde::Deserialize)]
+struct ClientDownload {
+    url: String,
+    sha1: String,
+    size: u64,
+}
+
 #[tauri::command]
 async fn get_minecraft_versions() -> Result<Vec<MinecraftVersion>, String> {
     let response = reqwest::get(
@@ -135,13 +155,51 @@ async fn get_minecraft_versions() -> Result<Vec<MinecraftVersion>, String> {
     )
 }
 
+#[tauri::command]
+async fn get_version_details(version_id: String) -> Result<VersionDetails, String> {
+    let manifest_url =
+        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+    let manifest_response = reqwest::get(manifest_url)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let manifest: VersionManifest = manifest_response
+        .json()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let version = manifest
+        .versions
+        .iter()
+        .find(|version| version.id == version_id)
+        .ok_or_else(|| "Nie znaleziono wybranej wersji.".to_string())?;
+
+    let details_response = reqwest::get(&version.url)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !details_response.status().is_success() {
+        return Err("Nie udało się pobrać metadanych wersji.".to_string());
+    }
+
+    let details: VersionDetails = details_response
+        .json()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(details)
+}
+
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
             get_hardware_info,
-            get_minecraft_versions
+            get_minecraft_versions,
+            get_version_details
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
