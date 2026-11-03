@@ -1,3 +1,4 @@
+
 export type Lang = "en" | "pl";
 
 const en = {
@@ -16,6 +17,19 @@ const en = {
   dark: "Dark",
   light: "Light",
   amoled: "AMOLED",
+  hardware: "Hardware information",
+  scan: "Scan hardware",
+  scanning: "Scanning your computer...",
+  cpu: "Processor",
+  gpu: "Graphics card",
+  ram: "Total RAM",
+  logicalCores: "Logical cores",
+  physicalCores: "Physical cores",
+  system: "Operating system",
+  computer: "Computer name",
+  unavailable: "Unavailable",
+  scanError: "Could not scan your computer.",
+  loading: "Preparing your launcher...",
 };
 
 const pl: Record<keyof typeof en, string> = {
@@ -34,6 +48,19 @@ const pl: Record<keyof typeof en, string> = {
   dark: "Ciemny",
   light: "Jasny",
   amoled: "AMOLED",
+  hardware: "Informacje o sprzęcie",
+  scan: "Skanuj sprzęt",
+  scanning: "Skanowanie komputera...",
+  cpu: "Procesor",
+  gpu: "Karta graficzna",
+  ram: "Całkowita pamięć RAM",
+  logicalCores: "Rdzenie logiczne",
+  physicalCores: "Rdzenie fizyczne",
+  system: "System operacyjny",
+  computer: "Nazwa komputera",
+  unavailable: "Niedostępne",
+  scanError: "Nie udało się przeskanować komputera.",
+  loading: "Przygotowywanie launchera...",
 };
 
 export const dictionaries = { en, pl };
