@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b10">
+  <meta name="description" content="HWDP Launcher is an open-source Minecraft Java Edition launcher in development.">
+  <title>HWDP Launcher — Minecraft, your way</title>
+  <style>
+    :root{color-scheme:dark;--bg:#090b10;--panel:#111620;--line:#222b3a;--text:#f4f6fb;--muted:#a2adbf;--blue:#79a8ff;--green:#9ad7bb}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 70% 0%,#17243b 0,transparent 42%),var(--bg);color:var(--text);font:16px/1.6 Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+    a{color:inherit}.wrap{width:min(1080px,calc(100% - 40px));margin:auto}.nav{height:76px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ffffff12}.brand{font-weight:800;letter-spacing:.12em}.brand span{color:var(--blue)}.nav a{color:var(--muted);text-decoration:none;font-size:14px}
+    .hero{padding:110px 0 92px;max-width:780px}.eyebrow{color:var(--green);font-size:12px;letter-spacing:.18em;text-transform:uppercase;font-weight:700}.hero h1{font-size:clamp(44px,8vw,82px);line-height:1.02;letter-spacing:-.055em;margin:22px 0}.hero p{color:var(--muted);font-size:19px;max-width:650px}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:32px}.button{padding:12px 18px;border:1px solid var(--line);border-radius:9px;text-decoration:none;font-weight:650}.primary{background:var(--text);color:#0b0e14;border-color:var(--text)}.note{color:var(--muted);font-size:13px;margin-top:18px}
+    .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;padding-bottom:90px}.card{background:linear-gradient(145deg,#141b27,#0e131c);border:1px solid var(--line);border-radius:14px;padding:24px}.card h2{font-size:17px;margin:0 0 8px}.card p{color:var(--muted);font-size:14px;margin:0}.footer{border-top:1px solid #ffffff12;padding:26px 0 40px;color:var(--muted);font-size:13px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+    @media(max-width:720px){.hero{padding:76px 0 62px}.grid{grid-template-columns:1fr}.nav{height:64px}}
+  </style>
+</head>
+<body>
+  <header class="wrap nav"><div class="brand">HW<span>DP</span> / LAUNCHER</div><a href="https://github.com/ymuzyka11-code/hwdp-launcher">View source on GitHub ↗</a></header>
+  <main class="wrap">
+    <section class="hero">
+      <div class="eyebrow">Open source · Minecraft Java Edition</div>
+      <h1>Your game.<br>Under your control.</h1>
+      <p>HWDP Launcher is an independent Minecraft launcher focused on clean instance management, useful performance insights and a polished desktop experience.</p>
+      <div class="actions"><a class="button primary" href="https://github.com/ymuzyka11-code/hwdp-launcher">Explore the project</a><a class="button" href="https://github.com/ymuzyka11-code/hwdp-launcher/releases">Releases</a></div>
+      <div class="note">Early development. Installer downloads will appear here after the first verified release.</div>
+    </section>
+    <section class="grid" aria-label="Project principles">
+      <article class="card"><h2>Built for modded Minecraft</h2><p>Planned support for Fabric, Quilt, Forge, NeoForge, Modrinth and CurseForge.</p></article>
+      <article class="card"><h2>Understand your hardware</h2><p>Local hardware profiling will help explain settings and performance trade-offs.</p></article>
+      <article class="card"><h2>Open and transparent</h2><p>No ads. No default telemetry. Game files are intended to come from official sources.</p></article>
+    </section>
+  </main>
+  <footer class="wrap footer"><span>© HWDP Launcher contributors</span><span>Independent community project. Not affiliated with Mojang or Microsoft.</span></footer>
+</body>
+</html>
