@@ -27,7 +27,7 @@ npm run tauri build -- --bundles nsis
 The NSIS installer is produced under `src-tauri/target/release/bundle/nsis/`.
 
 ### Download a CI developer installer
-Open **Releases** and download `HWDP-Launcher-Setup.exe` from the **HWDP Launcher – Developer Preview** prerelease. The release is refreshed automatically after each successful push to `dev/developer-preview`. If the release is not visible yet, open **Actions**, select the latest **Windows installer** run, and wait for it to finish successfully; the same installer is also attached as the `HWDP-Launcher-Windows-x64-Setup` workflow artifact.
+Open **Releases** and download the Windows `.exe` installer attached to the **HWDP Launcher – Developer Preview** prerelease. The release is refreshed automatically after each successful push to `dev/developer-preview`. If the release is not visible yet, open **Actions**, select the latest **Windows installer** run, and wait for it to finish successfully; the same installer is also attached as the `HWDP-Launcher-Windows-x64-Setup` workflow artifact.
 
 ## Current implementation status
 
