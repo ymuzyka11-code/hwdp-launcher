@@ -1,7 +1,9 @@
-
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use serde_json::Value;
 use sysinfo::{CpuRefreshKind, System};
+
+const MOJANG_MANIFEST_URL: &str =
+    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -16,45 +18,9 @@ struct HardwareInfo {
     gpu_name: Option<String>,
 }
 
-#[cfg(target_os = "windows")]
-fn detect_gpu() -> Option<String> {
-    let output = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "Get-CimInstance -ClassName Win32_VideoController | ForEach-Object { $_.Name }",
-        ])
-        .output()
-        .ok()?;
-
-    if !output.status.success() {
-        return None;
-    }
-
-    let result = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    if result.is_empty() {
-        None
-    } else {
-        Some(result)
-    }
-}
-
-#[cfg(not(target_os = "windows"))]
-fn detect_gpu() -> Option<String> {
-    None
-}
-
 #[tauri::command]
 fn get_hardware_info() -> HardwareInfo {
     let mut system = System::new();
-
     system.refresh_cpu_list(CpuRefreshKind::everything());
     system.refresh_memory();
 
@@ -73,11 +39,11 @@ fn get_hardware_info() -> HardwareInfo {
         os_name: System::name(),
         os_version: System::os_version(),
         host_name: System::host_name(),
-        gpu_name: detect_gpu(),
+        // GPU detection is intentionally not guessed. Native DXGI detection
+        // will replace this placeholder in a dedicated implementation.
+        gpu_name: None,
     }
 }
-
-// Dane pobierane z oficjalnego manifestu Mojang.
 
 #[derive(Deserialize)]
 struct VersionManifest {
@@ -87,13 +53,10 @@ struct VersionManifest {
 #[derive(Deserialize)]
 struct ManifestVersion {
     id: String,
-
     #[serde(rename = "type")]
     version_type: String,
-
     #[serde(rename = "releaseTime")]
     release_time: String,
-
     url: String,
 }
 
@@ -106,260 +69,76 @@ struct MinecraftVersion {
     url: String,
 }
 
-#[derive(Serialize, serde::Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct VersionDetails {
-    id: String,
-    main_class: String,
-    downloads: VersionDownloads,
-}
-
-#[derive(Serialize, serde::Deserialize)]
-struct VersionDownloads {
-    client: ClientDownload,
-}
-
-#[derive(Serialize, serde::Deserialize)]
-struct ClientDownload {
-    url: String,
-    sha1: String,
-    size: u64,
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct DownloadResult {
-    version_id: String,
-    file_path: String,
-    file_size: u64,
-    sha1_verified: bool,
-}
-
-#[derive(Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-struct DownloadProgress {
-    version_id: String,
-    downloaded: u64,
-    total: u64,
-    percentage: u8,
+async fn fetch_json(url: &str, label: &str) -> Result<Value, String> {
+    reqwest::Client::builder()
+        .user_agent(concat!("HWDP-Launcher/", env!("CARGO_PKG_VERSION")))
+        .build()
+        .map_err(|error| format!("Could not create HTTP client: {error}"))?
+        .get(url)
+        .timeout(std::time::Duration::from_secs(30))
+        .send()
+        .await
+        .map_err(|error| format!("{label} request failed: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("{label} returned an HTTP error: {error}"))?
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("{label} contains invalid JSON: {error}"))
 }
 
 #[tauri::command]
 async fn get_minecraft_versions() -> Result<Vec<MinecraftVersion>, String> {
-    let response = reqwest::get(
-        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
-    )
-    .await
-    .map_err(|error| format!("Connection error: {error}"))?;
+    let manifest_value = fetch_json(MOJANG_MANIFEST_URL, "Mojang version manifest").await?;
+    let manifest: VersionManifest = serde_json::from_value(manifest_value)
+        .map_err(|error| format!("Invalid Mojang version manifest: {error}"))?;
 
-    let manifest: VersionManifest = response
-        .error_for_status()
-        .map_err(|error| format!("Server error: {error}"))?
-        .json()
-        .await
-        .map_err(|error| format!("Invalid manifest: {error}"))?;
-
-    Ok(
-        manifest
-            .versions
-            .into_iter()
-            .map(|version| MinecraftVersion {
-                id: version.id,
-                version_type: version.version_type,
-                release_time: version.release_time,
-                url: version.url,
-            })
-            .collect()
-    )
+    Ok(manifest
+        .versions
+        .into_iter()
+        .map(|version| MinecraftVersion {
+            id: version.id,
+            version_type: version.version_type,
+            release_time: version.release_time,
+            url: version.url,
+        })
+        .collect())
 }
 
+/// Returns the official version metadata for a version ID present in Mojang's
+/// signed-over-HTTPS version manifest. The frontend never supplies an
+/// arbitrary URL, preventing this command from becoming a general URL fetcher.
 #[tauri::command]
-async fn get_version_details(version_id: String) -> Result<VersionDetails, String> {
-    let manifest_url =
-        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+async fn get_minecraft_version_details(version_id: String) -> Result<Value, String> {
+    if version_id.is_empty()
+        || version_id.len() > 64
+        || !version_id
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || "._-".contains(character))
+    {
+        return Err("Invalid Minecraft version identifier.".to_string());
+    }
 
-    let manifest_response = reqwest::get(manifest_url)
-        .await
-        .map_err(|error| error.to_string())?;
-
-    let manifest: VersionManifest = manifest_response
-        .json()
-        .await
-        .map_err(|error| error.to_string())?;
+    let manifest_value = fetch_json(MOJANG_MANIFEST_URL, "Mojang version manifest").await?;
+    let manifest: VersionManifest = serde_json::from_value(manifest_value)
+        .map_err(|error| format!("Invalid Mojang version manifest: {error}"))?;
 
     let version = manifest
         .versions
-        .iter()
+        .into_iter()
         .find(|version| version.id == version_id)
-        .ok_or_else(|| "Nie znaleziono wybranej wersji.".to_string())?;
+        .ok_or_else(|| format!("Minecraft version '{version_id}' was not found in Mojang's manifest."))?;
 
-    let details_response = reqwest::get(&version.url)
-        .await
-        .map_err(|error| error.to_string())?;
+    let details = fetch_json(&version.url, "Minecraft version metadata").await?;
+    let returned_id = details
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Version metadata is missing its ID.".to_string())?;
 
-    if !details_response.status().is_success() {
-        return Err("Nie udało się pobrać metadanych wersji.".to_string());
+    if returned_id != version_id {
+        return Err("Mojang metadata ID does not match the requested version.".to_string());
     }
-
-    let details: VersionDetails = details_response
-        .json()
-        .await
-        .map_err(|error| error.to_string())?;
 
     Ok(details)
-}
-
-#[tauri::command]
-async fn download_minecraft_client(
-    app: tauri::AppHandle,
-    version_id: String,
-) -> Result<DownloadResult, String> {
-    use sha1::{Digest, Sha1};
-    use std::io::Write;
-    use tauri::Emitter;
-
-    let manifest_url =
-        "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
-
-    let manifest_response = reqwest::get(manifest_url)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !manifest_response.status().is_success() {
-        return Err("Nie udało się pobrać manifestu.".to_string());
-    }
-
-    let manifest: VersionManifest = manifest_response
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    let version = manifest.versions
-        .iter()
-        .find(|v| v.id == version_id)
-        .ok_or_else(|| "Nie znaleziono wersji.".to_string())?;
-
-    let details_response = reqwest::get(&version.url)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !details_response.status().is_success() {
-        return Err("Nie udało się pobrać metadanych.".to_string());
-    }
-
-    let details: VersionDetails = details_response
-        .json()
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !details.id.chars().all(|c| {
-        c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-'
-    }) {
-        return Err("Nieprawidłowy identyfikator wersji.".to_string());
-    }
-
-    let total = details.downloads.client.size;
-
-    let response = reqwest::get(&details.downloads.client.url)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    if !response.status().is_success() {
-        return Err("Nie udało się pobrać pliku Minecrafta.".to_string());
-    }
-
-    let app_data = std::env::var("APPDATA")
-        .map_err(|_| "Nie znaleziono folderu AppData.".to_string())?;
-
-    let version_dir = std::path::PathBuf::from(app_data)
-        .join("HWDP Launcher")
-        .join("versions")
-        .join(&details.id);
-
-    std::fs::create_dir_all(&version_dir)
-        .map_err(|e| e.to_string())?;
-
-    let file_path = version_dir.join("client.jar");
-    let temporary_path = version_dir.join("client.jar.tmp");
-
-    let mut file = std::fs::File::create(&temporary_path)
-        .map_err(|e| e.to_string())?;
-
-    let mut downloaded: u64 = 0;
-    let mut hasher = Sha1::new();
-    let mut response = response;
-
-    let _ = app.emit(
-        "minecraft-download-progress",
-        DownloadProgress {
-            version_id: details.id.clone(),
-            downloaded: 0,
-            total,
-            percentage: 0,
-        },
-    );
-
-    while let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? {
-        file.write_all(&chunk).map_err(|e| e.to_string())?;
-
-        hasher.update(&chunk);
-        downloaded += chunk.len() as u64;
-
-        let percentage = if total > 0 {
-            ((downloaded.saturating_mul(100) / total).min(100)) as u8
-        } else {
-            0
-        };
-
-        let _ = app.emit(
-            "minecraft-download-progress",
-            DownloadProgress {
-                version_id: details.id.clone(),
-                downloaded,
-                total,
-                percentage,
-            },
-        );
-    }
-
-    file.flush().map_err(|e| e.to_string())?;
-    drop(file);
-
-    if downloaded != total {
-        let _ = std::fs::remove_file(&temporary_path);
-        return Err("Rozmiar pobranego pliku jest nieprawidłowy.".to_string());
-    }
-
-    let actual_sha1 = format!("{:x}", hasher.finalize());
-
-    if actual_sha1 != details.downloads.client.sha1.to_lowercase() {
-        let _ = std::fs::remove_file(&temporary_path);
-        return Err("Weryfikacja SHA-1 nie powiodła się.".to_string());
-    }
-
-    if file_path.exists() {
-        std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
-    }
-
-    std::fs::rename(&temporary_path, &file_path)
-        .map_err(|e| e.to_string())?;
-
-    let _ = app.emit(
-        "minecraft-download-progress",
-        DownloadProgress {
-            version_id: details.id.clone(),
-            downloaded,
-            total,
-            percentage: 100,
-        },
-    );
-
-    Ok(DownloadResult {
-        version_id: details.id,
-        file_path: file_path.to_string_lossy().to_string(),
-        file_size: downloaded,
-        sha1_verified: true,
-    })
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -369,8 +148,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_hardware_info,
             get_minecraft_versions,
-            get_version_details,
-            download_minecraft_client
+            get_minecraft_version_details
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
