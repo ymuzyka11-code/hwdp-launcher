@@ -1,10 +1,9 @@
-
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 import { dictionaries, type Lang, type TextKey } from "./i18n";
 
-type Page = "home" | "instances" | "mods" | "settings" | "minecraft";
+type Page = "home" | "minecraft" | "instances" | "mods" | "settings";
 type Theme = "dark" | "light" | "amoled";
 
 type HardwareInfo = {
@@ -25,35 +24,32 @@ type MinecraftVersion = {
   url: string;
 };
 
-function loadSetting<T extends string>(
-  key: string,
-  allowed: readonly T[],
-  fallback: T,
-): T {
+function loadSetting<T extends string>(key: string, allowed: readonly T[], fallback: T): T {
   try {
     const value = localStorage.getItem(key);
-    if (value && (allowed as readonly string[]).includes(value)) {
-      return value as T;
-    }
+    if (value && (allowed as readonly string[]).includes(value)) return value as T;
   } catch {
-    // Storage unavailable.
+    // Browser storage can be unavailable in restricted environments.
   }
   return fallback;
 }
 
+const pageMeta: Record<Page, { label: string; eyebrow: string }> = {
+  home: { label: "home", eyebrow: "OVERVIEW" },
+  minecraft: { label: "minecraft", eyebrow: "GAME LIBRARY" },
+  instances: { label: "instances", eyebrow: "WORKSPACES" },
+  mods: { label: "mods", eyebrow: "MOD CATALOG" },
+  settings: { label: "settings", eyebrow: "PREFERENCES" },
+};
+
 function App() {
   const [page, setPage] = useState<Page>("home");
-  const [lang, setLang] = useState<Lang>(() =>
-    loadSetting<Lang>("hwdp.lang", ["en", "pl"], "en"),
-  );
-  const [theme, setTheme] = useState<Theme>(() =>
-    loadSetting<Theme>("hwdp.theme", ["dark", "light", "amoled"], "dark"),
-  );
-
+  const [lang, setLang] = useState<Lang>(() => loadSetting("hwdp.lang", ["en", "pl"], "pl"));
+  const [theme, setTheme] = useState<Theme>(() => loadSetting("hwdp.theme", ["dark", "light", "amoled"], "dark"));
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [scanning, setScanning] = useState(false);
-  const [scanError, setScanError] = useState(false);
+  const [scanError, setScanError] = useState("");
   const [versions, setVersions] = useState<MinecraftVersion[]>([]);
   const [selectedVersion, setSelectedVersion] = useState("");
   const [versionFilter, setVersionFilter] = useState<"release" | "snapshot">("release");
@@ -62,412 +58,146 @@ function App() {
 
   const t = (key: TextKey) => dictionaries[lang][key];
 
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.lang = lang;
+    try {
+      localStorage.setItem("hwdp.theme", theme);
+      localStorage.setItem("hwdp.lang", lang);
+    } catch {
+      // Preferences remain usable for this session.
+    }
+  }, [theme, lang]);
+
   async function scanHardware() {
     setScanning(true);
-    setScanError(false);
-
+    setScanError("");
     try {
-      const info = await invoke<HardwareInfo>("get_hardware_info");
-      setHardware(info);
+      setHardware(await invoke<HardwareInfo>("get_hardware_info"));
     } catch (error) {
-      console.error("Hardware scan error:", error);
-      setScanError(true);
+      console.error("Hardware scan failed:", error);
+      setScanError(String(error));
     } finally {
       setScanning(false);
     }
   }
 
   async function loadVersions() {
-  setLoadingVersions(true);
-  setVersionsError("");
-
-  try {
-    const data = await invoke<MinecraftVersion[]>(
-      "get_minecraft_versions"
-    );
-
-    setVersions(data);
-
-    const latestRelease = data.find(
-      (version) => version.versionType === "release"
-    );
-
-    setSelectedVersion(
-      latestRelease?.id ?? data[0]?.id ?? ""
-    );
-  } catch (error) {
-    console.error("Minecraft versions error:", error);
-    setVersionsError(String(error));
-  } finally {
-    setLoadingVersions(false);
+    setLoadingVersions(true);
+    setVersionsError("");
+    try {
+      const result = await invoke<MinecraftVersion[]>("get_minecraft_versions");
+      setVersions(result);
+      const latest = result.find((item) => item.versionType === "release");
+      setSelectedVersion((current) => current || latest?.id || result[0]?.id || "");
+    } catch (error) {
+      console.error("Minecraft version manifest failed:", error);
+      setVersionsError(String(error));
+    } finally {
+      setLoadingVersions(false);
+    }
   }
-}
-
- useEffect(() => {
-     if (page !== "minecraft" || versions.length > 0) {
-     return;
-    }
-
-   void loadVersions();
-  }, [page]);
 
   useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-
-    try {
-      localStorage.setItem("hwdp.theme", theme);
-    } catch {
-      // Ignore storage errors.
-    }
-  }, [theme]);
-
-  useEffect(() => {
-    document.documentElement.lang = lang;
-
-    try {
-      localStorage.setItem("hwdp.lang", lang);
-    } catch {
-      // Ignore storage errors.
-    }
-  }, [lang]);
-
-  useEffect(() => {
-    let active = true;
-
-    async function initialize() {
-      try {
-        const info = await Promise.all([
-          invoke<HardwareInfo>("get_hardware_info"),
-          new Promise<void>((resolve) => setTimeout(resolve, 1000)),
-        ]);
-
-        if (active) {
-          setHardware(info[0]);
-        }
-      } catch (error) {
-        console.error("Startup scan error:", error);
-        if (active) setScanError(true);
-      } finally {
-        if (active) setLoading(false);
-      }
-    }
-
-    initialize();
-
-    return () => {
-      active = false;
-    };
+    let mounted = true;
+    invoke<HardwareInfo>("get_hardware_info")
+      .then((result) => { if (mounted) setHardware(result); })
+      .catch((error) => { if (mounted) setScanError(String(error)); })
+      .finally(() => { if (mounted) setLoading(false); });
+    return () => { mounted = false; };
   }, []);
 
-  const menu: { id: Page; label: TextKey }[] = [
-  { id: "home", label: "home" },
-  { id: "minecraft", label: "minecraft" },
-  { id: "instances", label: "instances" },
-  { id: "mods", label: "mods" },
-  { id: "settings", label: "settings" },
-];
+  useEffect(() => {
+    if (page === "minecraft" && versions.length === 0 && !loadingVersions) void loadVersions();
+  }, [page]);
 
-  const themes: Theme[] = ["dark", "light", "amoled"];
+  const visibleVersions = useMemo(
+    () => versions.filter((item) => item.versionType === versionFilter).slice(0, 100),
+    [versions, versionFilter],
+  );
+
+  const navigation: Page[] = ["home", "minecraft", "instances", "mods", "settings"];
 
   function formatMemory(bytes: number) {
     return `${(bytes / 1024 ** 3).toFixed(1)} GB`;
   }
 
   return (
-    <>
-      {loading && (
-        <div className="splash-screen">
-          <div className="splash-logo">HWDP</div>
-          <div className="splash-subtitle">LAUNCHER</div>
-          <div className="loading-track">
-            <div className="loading-progress" />
-          </div>
-          <p>{t("loading")}</p>
+    <div className="app-shell">
+      {loading && <div className="boot-screen"><div className="brand-mark">H</div><strong>HWDP LAUNCHER</strong><span>Preparing your workspace</span><div className="boot-line"><i /></div></div>}
+      <aside className="sidebar">
+        <div className="brand-lockup">
+          <div className="brand-mark">H</div>
+          <div><strong>HWDP</strong><span>LAUNCHER</span></div>
         </div>
-      )}
-
-      <div className="flex h-full">
-        <aside className="flex w-56 flex-col gap-1 bg-panel p-4">
-          <div className="mb-6 text-lg font-bold text-accent">
-            {t("appName")}
-          </div>
-
-          {menu.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setPage(item.id)}
-              className={`rounded-lg px-3 py-2 text-left transition-colors ${
-                page === item.id
-                  ? "bg-accent text-white"
-                  : "text-muted hover:bg-bg hover:text-fg"
-              }`}
-            >
-              {t(item.label)}
+        <div className="sidebar-caption">WORKSPACE</div>
+        <nav className="navigation" aria-label="Main navigation">
+          {navigation.map((item, index) => (
+            <button key={item} className={`nav-item ${page === item ? "active" : ""}`} onClick={() => setPage(item)}>
+              <span className="nav-symbol">{["⌂", "▣", "▤", "✣", "⚙"][index]}</span>
+              <span>{t(item)}</span>
+              {page === item && <i />}
             </button>
           ))}
-        </aside>
-
-        <main className="flex-1 overflow-auto p-8">
-          {page === "home" && (
-            <div>
-              <h1 className="mb-2 text-3xl font-bold">
-                {t("welcome")}
-              </h1>
-
-              <p className="mb-6 text-muted">
-                {t("welcomeText")}
-              </p>
-
-              <button
-                disabled
-                className="mb-8 cursor-not-allowed rounded-lg bg-accent px-6 py-3 font-semibold text-white opacity-50"
-              >
-                {t("play")}
-              </button>
-
-              <section className="max-w-3xl">
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <h2 className="text-2xl font-bold">
-                    {t("hardware")}
-                  </h2>
-
-                  <button
-                    onClick={scanHardware}
-                    disabled={scanning}
-                    className="rounded-lg bg-accent px-4 py-2 text-white disabled:opacity-50"
-                  >
-                    {scanning ? t("scanning") : t("scan")}
-                  </button>
-                </div>
-
-                {scanError && (
-                  <p className="mb-4 text-red-400">
-                    {t("scanError")}
-                  </p>
-                )}
-
-                {hardware ? (
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <HardwareCard
-                      title={t("cpu")}
-                      value={hardware.cpuName}
-                      detail={`${hardware.logicalCores} ${t("logicalCores")} · ${
-                        hardware.physicalCores ?? t("unavailable")
-                      } ${t("physicalCores")}`}
-                    />
-
-                    <HardwareCard
-                      title={t("gpu")}
-                      value={hardware.gpuName ?? t("unavailable")}
-                    />
-
-                    <HardwareCard
-                      title={t("ram")}
-                      value={formatMemory(hardware.totalMemoryBytes)}
-                    />
-
-                    <HardwareCard
-                      title={t("system")}
-                      value={
-                        [hardware.osName, hardware.osVersion]
-                          .filter(Boolean)
-                          .join(" ") || t("unavailable")
-                      }
-                    />
-
-                    <HardwareCard
-                      title={t("computer")}
-                      value={hardware.hostName ?? t("unavailable")}
-                    />
-                  </div>
-                ) : (
-                  <p className="text-muted">
-                    {scanning ? t("scanning") : t("unavailable")}
-                  </p>
-                )}
-              </section>
-            </div>
-          )}
-
-{page === "minecraft" && (
-  <section className="max-w-3xl">
-    <h1 className="mb-2 text-3xl font-bold">
-      {t("minecraft")}
-    </h1>
-
-    <p className="mb-6 text-muted">
-      {t("versionSelection")}
-    </p>
-
-    <div className="mb-5 flex flex-wrap gap-2">
-      <button
-        onClick={() => setVersionFilter("release")}
-        className={`rounded-lg px-4 py-2 ${
-          versionFilter === "release"
-            ? "bg-accent text-white"
-            : "bg-panel text-fg"
-        }`}
-      >
-        {t("release")}
-      </button>
-
-      <button
-        onClick={() => setVersionFilter("snapshot")}
-        className={`rounded-lg px-4 py-2 ${
-          versionFilter === "snapshot"
-            ? "bg-accent text-white"
-            : "bg-panel text-fg"
-        }`}
-      >
-        {t("snapshot")}
-      </button>
-
-      <button
-        onClick={loadVersions}
-        disabled={loadingVersions}
-        className="rounded-lg bg-panel px-4 py-2 text-fg disabled:opacity-50"
-      >
-        {loadingVersions
-          ? t("loadingVersions")
-          : t("refreshVersions")}
-      </button>
-    </div>
-
-    {loadingVersions && (
-      <p className="text-muted">{t("loadingVersions")}</p>
-    )}
-
-    {versionsError && (
-      <p className="mb-4 text-red-400">
-        {t("versionsError")} {versionsError}
-      </p>
-    )}
-
-    {!loadingVersions && versions.length > 0 && (
-      <>
-        <label className="mb-2 block text-sm text-muted">
-          {t("chooseVersion")}
-        </label>
-
-        <select
-          value={selectedVersion}
-          onChange={(e) => setSelectedVersion(e.target.value)}
-          className="mb-5 w-full rounded-lg bg-panel px-4 py-3 text-fg"
-        >
-          {versions
-            .filter((version) =>
-              versionFilter === "release"
-                ? version.versionType === "release"
-                : version.versionType === "snapshot"
-            )
-            .slice(0, 50)
-            .map((version) => (
-              <option key={version.id} value={version.id}>
-                {version.id}
-              </option>
-            ))}
-        </select>
-
-        <div className="rounded-xl border border-white/10 bg-panel p-5">
-          <p className="mb-2 text-sm text-muted">
-            {t("selectedVersion")}
-          </p>
-
-          <h2 className="text-2xl font-bold">
-            Minecraft {selectedVersion || "—"}
-          </h2>
-
-          <p className="mt-2 text-sm text-muted">
-            {t("releaseDate")}:{" "}
-            {versions.find((v) => v.id === selectedVersion)
-              ? new Date(
-                  versions.find((v) => v.id === selectedVersion)!.releaseTime
-                ).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-US")
-              : "—"}
-          </p>
-
-          <div className="mt-5 rounded-lg bg-bg p-4 text-sm text-muted">
-            {t("installComingSoon")}
-          </div>
+        </nav>
+        <div className="sidebar-bottom">
+          <div className="connection-indicator"><span />{t("localReady")}</div>
+          <div className="version-label">HWDP Launcher <span>v0.1.0 · DEV</span></div>
         </div>
-      </>
-    )}
-  </section>
-)}
-          {page === "instances" && (
-            <div>
-              <h1 className="mb-2 text-3xl font-bold">{t("instances")}</h1>
-              <p className="text-muted">{t("noInstances")}</p>
-            </div>
-          )}
+      </aside>
 
-          {page === "mods" && (
-            <div>
-              <h1 className="mb-2 text-3xl font-bold">{t("mods")}</h1>
-              <p className="text-muted">{t("modsSoon")}</p>
-            </div>
-          )}
+      <main className="main-panel">
+        <header className="topbar">
+          <div className="breadcrumb"><span>HWDP</span><b>/</b>{t(page)}</div>
+          <div className="topbar-actions">
+            <span className="status-chip"><i />{t("earlyAccess")}</span>
+            <button className="icon-button" aria-label="Toggle theme" onClick={() => setTheme(theme === "dark" ? "light" : theme === "light" ? "amoled" : "dark")}>◐</button>
+            <select className="language-select" value={lang} onChange={(event) => setLang(event.target.value as Lang)} aria-label={t("language")}>
+              <option value="pl">PL</option><option value="en">EN</option>
+            </select>
+          </div>
+        </header>
 
-          {page === "settings" && (
-            <div className="max-w-md">
-              <h1 className="mb-6 text-3xl font-bold">{t("settings")}</h1>
+        <div className="page-content">
+          <div className="page-heading">
+            <div><div className="eyebrow">{pageMeta[page].eyebrow}</div><h1>{t(page)}</h1></div>
+            {page === "home" && <div className="build-tag">BUILD 0.1.0</div>}
+          </div>
 
-              <div className="mb-6">
-                <div className="mb-2 text-sm text-muted">{t("language")}</div>
-
-                <select
-                  value={lang}
-                  onChange={(e) => setLang(e.target.value as Lang)}
-                  className="w-full rounded-lg bg-panel px-3 py-2 text-fg"
-                >
-                  <option value="en">English</option>
-                  <option value="pl">Polski</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="mb-2 text-sm text-muted">{t("theme")}</div>
-
-                <div className="flex gap-2">
-                  {themes.map((name) => (
-                    <button
-                      key={name}
-                      onClick={() => setTheme(name)}
-                      className={`rounded-lg px-4 py-2 ${
-                        theme === name
-                          ? "bg-accent text-white"
-                          : "bg-panel text-fg hover:opacity-80"
-                      }`}
-                    >
-                      {t(name)}
-                    </button>
-                  ))}
+          {page === "home" && (
+            <>
+              <section className="hero-card">
+                <div className="hero-copy"><div className="hero-kicker">{t("launcherEnvironment")}</div><h2>{t("welcome")}</h2><p>{t("welcomeText")}</p><button className="primary-button" onClick={() => setPage("minecraft")}>{t("browseVersions")} <span>→</span></button></div>
+                <div className="hero-art" aria-hidden="true"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="hero-cube"><span>HW</span><span>DP</span></div></div>
+                <div className="hero-glow" />
+              </section>
+              <section className="section-block">
+                <div className="section-heading"><div><div className="eyebrow">{t("systemOverview")}</div><h2>{t("hardware")}</h2></div><button className="secondary-button" onClick={scanHardware} disabled={scanning}>{scanning ? t("scanning") : "↻  " + t("scan")}</button></div>
+                {scanError && <div className="inline-alert">{t("scanError")} <span>{scanError}</span></div>}
+                <div className="hardware-grid">
+                  <HardwareCard label={t("cpu")} value={hardware?.cpuName ?? (loading ? t("scanning") : t("unavailable"))} detail={hardware ? `${hardware.logicalCores} ${t("logicalCores")} · ${hardware.physicalCores ?? "—"} ${t("physicalCores")}` : ""} symbol="⌘" />
+                  <HardwareCard label={t("gpu")} value={hardware?.gpuName ?? t("gpuPending")} detail={t("gpuPendingDetail")} symbol="▧" />
+                  <HardwareCard label={t("ram")} value={hardware ? formatMemory(hardware.totalMemoryBytes) : "—"} detail={t("detectedMemory")} symbol="▤" />
+                  <HardwareCard label={t("system")} value={hardware ? [hardware.osName, hardware.osVersion].filter(Boolean).join(" ") : "—"} detail={hardware?.hostName ?? ""} symbol="⌗" />
                 </div>
-              </div>
-            </div>
+              </section>
+            </>
           )}
-        </main>
-      </div>
-    </>
+
+          {page === "minecraft" && <section className="content-card"><div className="section-heading"><div><div className="eyebrow">{t("officialManifest")}</div><h2>{t("versionSelection")}</h2><p>{t("versionDescription")}</p></div><button className="secondary-button" onClick={loadVersions} disabled={loadingVersions}>↻ {t("refreshVersions")}</button></div><div className="segmented-control"><button className={versionFilter === "release" ? "selected" : ""} onClick={() => setVersionFilter("release")}>{t("release")}</button><button className={versionFilter === "snapshot" ? "selected" : ""} onClick={() => setVersionFilter("snapshot")}>{t("snapshot")}</button></div>{loadingVersions && <p className="muted-message">{t("loadingVersions")}</p>}{versionsError && <div className="inline-alert">{t("versionsError")} {versionsError}</div>}{!loadingVersions && visibleVersions.length > 0 && <><label className="field-label" htmlFor="version-select">{t("chooseVersion")}</label><select id="version-select" className="version-select" value={selectedVersion} onChange={(event) => setSelectedVersion(event.target.value)}>{visibleVersions.map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}</select><div className="selected-version"><div><span>{t("selectedVersion")}</span><strong>Minecraft {selectedVersion}</strong><small>{t("releaseDate")}: {new Date(versions.find((item) => item.id === selectedVersion)?.releaseTime ?? "").toLocaleDateString(lang === "pl" ? "pl-PL" : "en-US")}</small></div><span className="planned-label">{t("installerPlanned")}</span></div><p className="notice-text">{t("installComingSoon")}</p></>}</section>}
+
+          {page === "instances" && <section className="empty-state"><div className="empty-icon">▣</div><h2>{t("instances")}</h2><p>{t("noInstances")}</p><span className="planned-label">{t("plannedFeature")}</span></section>}
+          {page === "mods" && <section className="empty-state"><div className="empty-icon">✣</div><h2>{t("mods")}</h2><p>{t("modsSoon")}</p><span className="planned-label">{t("plannedFeature")}</span></section>}
+          {page === "settings" && <section className="content-card settings-card"><div className="eyebrow">{t("preferences")}</div><h2>{t("settings")}</h2><div className="setting-row"><div><strong>{t("language")}</strong><span>{t("languageDescription")}</span></div><select className="language-select large" value={lang} onChange={(event) => setLang(event.target.value as Lang)}><option value="pl">Polski</option><option value="en">English</option></select></div><div className="setting-row"><div><strong>{t("theme")}</strong><span>{t("themeDescription")}</span></div><select className="language-select large" value={theme} onChange={(event) => setTheme(event.target.value as Theme)}><option value="dark">Dark</option><option value="light">Light</option><option value="amoled">AMOLED</option></select></div><div className="setting-row"><div><strong>{t("appVersion")}</strong><span>0.1.0 · Early development</span></div></div></section>}
+          <footer className="page-footer"><span>© 2026 HWDP Launcher</span><span>{t("notAffiliated")}</span></footer>
+        </div>
+      </main>
+    </div>
   );
 }
 
-function HardwareCard({
-  title,
-  value,
-  detail,
-}: {
-  title: string;
-  value: string;
-  detail?: string;
-}) {
-  return (
-    <div className="rounded-xl border border-white/10 bg-panel p-5">
-      <p className="mb-2 text-sm text-muted">{title}</p>
-      <p className="break-words text-lg font-semibold">{value}</p>
-      {detail && <p className="mt-2 text-sm text-muted">{detail}</p>}
-    </div>
-  );
+function HardwareCard({ label, value, detail, symbol }: { label: string; value: string; detail: string; symbol: string }) {
+  return <article className="hardware-card"><div className="hardware-card-top"><span>{label}</span><i>{symbol}</i></div><strong>{value}</strong>{detail && <small>{detail}</small>}</article>;
 }
 
 export default App;
