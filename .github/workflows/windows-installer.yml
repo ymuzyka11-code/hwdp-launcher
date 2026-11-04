@@ -59,6 +59,7 @@ jobs:
           prerelease: true
           make_latest: false
           generate_release_notes: true
+          overwrite_files: true
           files: src-tauri/target/release/bundle/nsis/*.exe
 
       - name: Publish versioned release
@@ -67,4 +68,5 @@ jobs:
         with:
           name: HWDP Launcher ${{ github.ref_name }}
           generate_release_notes: true
+          overwrite_files: true
           files: src-tauri/target/release/bundle/nsis/*.exe
