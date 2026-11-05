@@ -1,3 +1,4 @@
+mod launcher;
 
 use serde::{Deserialize, Serialize};
 use std::process::Command;
@@ -362,6 +363,66 @@ async fn download_minecraft_client(
     })
 }
 
+
+
+#[derive(Deserialize)]
+struct ModrinthSearchResponse {
+    hits: Vec<ModrinthProject>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ModrinthProject {
+    project_id: String,
+    slug: String,
+    title: String,
+    description: String,
+    author: String,
+    downloads: u64,
+    icon_url: Option<String>,
+    project_type: String,
+}
+
+#[tauri::command]
+async fn search_modrinth_projects(query: String, game_version: Option<String>, loader: Option<String>) -> Result<Vec<ModrinthProject>, String> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Ok(Vec::new());
+    }
+    if query.len() > 120 {
+        return Err("Search query is too long.".to_string());
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("HWDP-Launcher/0.1.0 (https://github.com/ymuzyka11-code/hwdp-launcher)")
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let mut facets = vec![r#"["project_type:mod"]"#.to_string()];
+    if let Some(version) = game_version.filter(|v| !v.is_empty()) {
+        let escaped = version.replace('\\', "").replace('"', "");
+        facets.push(format!(r#"["versions:{}"]"#, escaped));
+    }
+    if let Some(loader) = loader.filter(|v| !v.is_empty() && v != "vanilla") {
+        let escaped = loader.replace('\\', "").replace('"', "");
+        facets.push(format!(r#"["categories:{}"]"#, escaped));
+    }
+
+    let facets_json = format!("[{}]", facets.join(","));
+    let response = client
+        .get("https://api.modrinth.com/v2/search")
+        .query(&[("query", query), ("limit", "30"), ("facets", facets_json.as_str())])
+        .send()
+        .await
+        .map_err(|e| format!("Modrinth connection failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("Modrinth API error: {e}"))?;
+
+    let result: ModrinthSearchResponse = response.json().await
+        .map_err(|e| format!("Invalid Modrinth response: {e}"))?;
+    Ok(result.hits)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -370,7 +431,18 @@ pub fn run() {
             get_hardware_info,
             get_minecraft_versions,
             get_version_details,
-            download_minecraft_client
+            download_minecraft_client,
+            search_modrinth_projects,
+            launcher::microsoft_login,
+            launcher::microsoft_logout,
+            launcher::get_microsoft_account_name,
+            launcher::list_profiles,
+            launcher::create_profile,
+            launcher::delete_profile,
+            launcher::launch_profile,
+            launcher::install_modrinth_version,
+            launcher::search_curseforge,
+            launcher::install_curseforge_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

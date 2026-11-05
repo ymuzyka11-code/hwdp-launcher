@@ -1,31 +1,57 @@
 # HWDP Launcher
 
-A free, open-source launcher for Minecraft: Java Edition.
+A Windows-first Minecraft Java Edition launcher built with Tauri 2, Rust, React and TypeScript.
 
-## Requirements
+## Developer preview
 
-HWDP Launcher requires signing in with a Microsoft account that owns
-Minecraft: Java Edition. The launcher verifies game ownership through the
-official Minecraft Services API before the game can be started.
+The `dev/developer-preview` branch is an early development build. It is not a finished launcher.
 
-The release build contains no offline mode and does not bypass
-authentication, ownership or license checks.
+### Requirements
+- Windows 10/11 x64
+- Node.js 22+
+- Rust stable toolchain
+- Microsoft Edge WebView2 Runtime
 
-## Features (planned)
+### Run from source
+```powershell
+npm ci
+npm run tauri dev
+```
 
-- Instance management with Fabric, Quilt, Forge and NeoForge support
-- Mod browser for Modrinth and CurseForge
-- Hardware scan with performance recommendations
-- Crash analyzer and backups
+### Build the Windows installer locally
+```powershell
+npm ci
+npm run tauri build -- --bundles nsis
+```
 
-## Game files
+The NSIS installer is produced under `src-tauri/target/release/bundle/nsis/`.
 
-All game files are downloaded from official Mojang servers.
+### Download a CI developer installer
+Open **Releases** and download the Windows `.exe` installer attached to the **HWDP Launcher – Developer Preview** prerelease. The release is refreshed automatically after each successful push to `dev/developer-preview`. If the release is not visible yet, open **Actions**, select the latest **Windows installer** run, and wait for it to finish successfully; the same installer is also attached as the `HWDP-Launcher-Windows-x64-Setup` workflow artifact.
 
-## Status
+## Current implementation status
 
-Early development.
+- Tauri desktop shell and React interface
+- Polish/English interface and dark/light/AMOLED themes
+- Local hardware information scan
+- Mojang version manifest listing
+- Download of the selected Minecraft client JAR with SHA-1 verification
+- Native Modrinth project search (public catalog; opens project pages for file review)
 
-## License
+## Not implemented yet
 
-MIT
+The Mods screen currently searches Modrinth projects and links to CurseForge search. It does not yet download or install mod files. Review each project's game version and mod-loader compatibility on the provider page before using it.
+
+- Complete Minecraft installation (libraries, assets, natives and version-specific launch arguments)
+- Starting a Minecraft game process
+- Microsoft/Xbox/Minecraft account authentication
+- Direct CurseForge API integration and in-app mod installation (CurseForge requires an approved API key; the current build links to its catalog)
+- Mod installation into managed profiles
+- Modpack import/export, profile management and mod-content analysis
+- Signed production installer and automatic updates
+
+**Authentication note:** a developer/offline profile can be used to develop the launcher UI, but it does not grant Minecraft ownership, Microsoft authentication, multiplayer access to authenticated servers, or permission to bypass account checks. Offline play is limited to environments that explicitly allow offline-mode accounts. Do not enter Microsoft passwords or tokens into this preview.
+
+## Project goals
+
+See the project issue tracker and roadmap. Contributions are welcome; never commit API secrets, OAuth client secrets, access tokens, or personal diagnostic data.
