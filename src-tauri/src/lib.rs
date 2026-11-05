@@ -407,9 +407,10 @@ async fn search_modrinth_projects(query: String, game_version: Option<String>, l
         facets.push(format!(r#"["categories:{}"]"#, escaped));
     }
 
+    let facets_json = format!("[{}]", facets.join(","));
     let response = client
         .get("https://api.modrinth.com/v2/search")
-        .query(&[("query", query), ("limit", "30"), ("facets", &format!("[{}]", facets.join(",")))])
+        .query(&[("query", query), ("limit", "30"), ("facets", facets_json.as_str())])
         .send()
         .await
         .map_err(|e| format!("Modrinth connection failed: {e}"))?
