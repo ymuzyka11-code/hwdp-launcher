@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::{fs, path::{Path, PathBuf}, process::Stdio};
+use std::{fs, path::{Path, PathBuf}};
 
 fn data_dir() -> Result<PathBuf, String> {
     let base = std::env::var_os("APPDATA")
@@ -65,7 +65,7 @@ pub fn create_profile(name: String, game_version: String, loader: String) -> Res
     }
     let profile = Profile {
         id, name: name.trim().to_string(), game_version, loader,
-        created_at: chrono::Utc::now().to_rfc3339(),
+        created_at: format!("{:?}", std::time::SystemTime::now()),
     };
     profiles.push(profile.clone());
     write_profiles(&profiles)?;
@@ -174,7 +174,7 @@ struct MrDependency {
 }
 
 async fn download_modrinth_version(client: &reqwest::Client, version_id: &str, mods_dir: &Path) -> Result<String, String> {
-    let endpoint = format!("https://api.modrinth.com/v2/version/{}", urlencoding::encode(version_id));
+    let endpoint = format!("https://api.modrinth.com/v2/version/{}", version_id);
     let version: MrVersion = client.get(endpoint).send().await.map_err(|e| e.to_string())?
         .error_for_status().map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
     let file = version.files.iter().find(|f| f.primary).or_else(|| version.files.first())
@@ -194,7 +194,7 @@ async fn download_modrinth_version(client: &reqwest::Client, version_id: &str, m
     let mut installed = vec![filename];
     for dependency in version.dependencies.iter().filter(|d| d.dependency_type == "required") {
         if let Some(dep_id) = &dependency.version_id {
-            let dep_endpoint = format!("https://api.modrinth.com/v2/version/{}", urlencoding::encode(dep_id));
+            let dep_endpoint = format!("https://api.modrinth.com/v2/version/{}", dep_id);
             let dep: MrVersion = client.get(dep_endpoint).send().await.map_err(|e| e.to_string())?
                 .error_for_status().map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
             if let Some(dep_file) = dep.files.iter().find(|f| f.primary).or_else(|| dep.files.first()) {
