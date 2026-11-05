@@ -115,23 +115,15 @@ fn read_account() -> Result<crust_core::authenticator::Account, String> {
 }
 
 #[tauri::command]
-pub async fn launch_profile(profile_id: String, developer_mode: bool, username: Option<String>) -> Result<String, String> {
-    use crust_core::authenticator::Account;
+pub async fn launch_profile(profile_id: String) -> Result<String, String> {
     use crust_core::launcher::{Launch, LaunchOptions, LoaderKind};
 
     let id = safe_name(&profile_id)?;
     let profile = read_profiles()?.into_iter().find(|p| p.id == id)
         .ok_or_else(|| "Profile not found.".to_string())?;
-    let account = match read_account() {
-        Ok(account) => account,
-        Err(error) if developer_mode => {
-            let name = username.unwrap_or_else(|| "HWDPDev".to_string());
-            let clean: String = name.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(16).collect();
-            if clean.is_empty() { return Err("Developer username must contain letters, numbers or underscore.".into()); }
-            Account::offline(&clean)
-        }
-        Err(error) => return Err(error),
-    };
+    // Online Microsoft authentication is required. Offline/developer identities
+    // are intentionally not used to bypass Minecraft ownership checks.
+    let account = read_account()?;
 
     let root = data_dir()?.join("game");
     fs::create_dir_all(&root).map_err(|e| e.to_string())?;
