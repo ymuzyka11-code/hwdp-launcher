@@ -41,6 +41,16 @@ const en = {
   selectedVersion: "Selected version",
   installComingSoon: "Game installation will be added in the next step.",
   releaseDate: "Release date",
+  modrinthIntro: "Search the public Modrinth catalog. Open a project page to review files and compatibility before installing.",
+  searchMods: "Search mods by name...",
+  searching: "Searching...",
+  search: "Search",
+  modSearchHint: "Enter a mod name to discover projects on Modrinth.",
+  by: "by",
+  downloads: "downloads",
+  openModrinth: "View on Modrinth",
+  curseForgeInfo: "CurseForge discovery is linked below. Direct in-app API access requires an approved CurseForge API key; no private key is embedded in this application.",
+  openCurseForge: "Browse CurseForge",
 };
 
 const pl: Record<keyof typeof en, string> = {
@@ -83,6 +93,16 @@ const pl: Record<keyof typeof en, string> = {
   selectedVersion: "Wybrana wersja",
   installComingSoon: "Instalowanie gry dodamy w następnym kroku.",
   releaseDate: "Data wydania",
+  modrinthIntro: "Przeszukuj publiczny katalog Modrinth. Otwórz stronę projektu, aby sprawdzić pliki i zgodność przed instalacją.",
+  searchMods: "Szukaj modów po nazwie...",
+  searching: "Wyszukiwanie...",
+  search: "Szukaj",
+  modSearchHint: "Wpisz nazwę moda, aby znaleźć projekty w Modrinth.",
+  by: "autor:",
+  downloads: "pobrań",
+  openModrinth: "Zobacz w Modrinth",
+  curseForgeInfo: "Katalog CurseForge jest dostępny przez poniższy odnośnik. Bezpośredni dostęp API w aplikacji wymaga zatwierdzonego klucza CurseForge; żaden prywatny klucz nie jest osadzony w aplikacji.",
+  openCurseForge: "Przeglądaj CurseForge",
 };
 
 export const dictionaries = { en, pl };
