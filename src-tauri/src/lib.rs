@@ -1,3 +1,4 @@
+mod launcher;
 
 use serde::{Deserialize, Serialize};
 use std::process::Command;
@@ -431,7 +432,17 @@ pub fn run() {
             get_minecraft_versions,
             get_version_details,
             download_minecraft_client,
-            search_modrinth_projects
+            search_modrinth_projects,
+            launcher::microsoft_login,
+            launcher::microsoft_logout,
+            launcher::get_microsoft_account_name,
+            launcher::list_profiles,
+            launcher::create_profile,
+            launcher::delete_profile,
+            launcher::launch_profile,
+            launcher::install_modrinth_version,
+            launcher::search_curseforge,
+            launcher::install_curseforge_file
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
