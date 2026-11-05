@@ -18,6 +18,8 @@ type HardwareInfo = {
   gpuName: string | null;
 };
 
+type ModrinthProject = { projectId: string; slug: string; title: string; description: string; author: string; downloads: number; iconUrl: string | null; projectType: string };
+
 type MinecraftVersion = {
   id: string;
   versionType: string;
@@ -59,6 +61,10 @@ function App() {
   const [versionFilter, setVersionFilter] = useState<"release" | "snapshot">("release");
   const [loadingVersions, setLoadingVersions] = useState(false);
   const [versionsError, setVersionsError] = useState("");
+  const [modQuery, setModQuery] = useState("");
+  const [modResults, setModResults] = useState<ModrinthProject[]>([]);
+  const [modLoading, setModLoading] = useState(false);
+  const [modError, setModError] = useState("");
 
   const t = (key: TextKey) => dictionaries[lang][key];
 
@@ -74,6 +80,30 @@ function App() {
       setScanError(true);
     } finally {
       setScanning(false);
+    }
+  }
+
+  async function searchMods() {
+    const query = modQuery.trim();
+    if (!query) {
+      setModResults([]);
+      setModError("");
+      return;
+    }
+    setModLoading(true);
+    setModError("");
+    try {
+      const results = await invoke<ModrinthProject[]>("search_modrinth_projects", {
+        query,
+        gameVersion: selectedVersion || null,
+        loader: null,
+      });
+      setModResults(results);
+    } catch (error) {
+      setModError(String(error));
+      setModResults([]);
+    } finally {
+      setModLoading(false);
     }
   }
 
@@ -402,10 +432,36 @@ function App() {
           )}
 
           {page === "mods" && (
-            <div>
+            <section className="max-w-5xl">
               <h1 className="mb-2 text-3xl font-bold">{t("mods")}</h1>
-              <p className="text-muted">{t("modsSoon")}</p>
-            </div>
+              <p className="mb-6 text-muted">{t("modrinthIntro")}</p>
+              <form className="mb-6 flex gap-2" onSubmit={(event) => { event.preventDefault(); void searchMods(); }}>
+                <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder={t("searchMods")} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-panel px-4 py-3 text-fg" />
+                <button type="submit" disabled={modLoading || !modQuery.trim()} className="rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-50">{modLoading ? t("searching") : t("search")}</button>
+              </form>
+              {modError && <p className="mb-4 text-red-400">{modError}</p>}
+              {!modLoading && modResults.length === 0 && <p className="mb-5 text-sm text-muted">{t("modSearchHint")}</p>}
+              <div className="grid gap-3 md:grid-cols-2">
+                {modResults.map((mod) => (
+                  <article key={mod.projectId} className="rounded-xl border border-white/10 bg-panel p-4">
+                    <div className="flex items-start gap-3">
+                      {mod.iconUrl ? <img src={mod.iconUrl} alt="" className="h-12 w-12 rounded-lg object-cover" /> : <div className="h-12 w-12 rounded-lg bg-bg" />}
+                      <div className="min-w-0 flex-1">
+                        <h2 className="font-semibold">{mod.title}</h2>
+                        <p className="text-xs text-muted">{t("by")} {mod.author} · {mod.downloads.toLocaleString()} {t("downloads")}</p>
+                      </div>
+                    </div>
+                    <p className="mt-3 line-clamp-3 text-sm text-muted">{mod.description}</p>
+                    <a className="mt-4 inline-block text-sm font-semibold text-accent hover:underline" href={`https://modrinth.com/mod/${encodeURIComponent(mod.slug)}`} target="_blank" rel="noreferrer">{t("openModrinth")}</a>
+                  </article>
+                ))}
+              </div>
+              <div className="mt-8 rounded-xl border border-white/10 bg-panel p-5">
+                <h2 className="font-semibold">CurseForge</h2>
+                <p className="mt-2 text-sm text-muted">{t("curseForgeInfo")}</p>
+                <a className="mt-3 inline-block text-sm font-semibold text-accent hover:underline" href="https://www.curseforge.com/minecraft/search" target="_blank" rel="noreferrer">{t("openCurseForge")}</a>
+              </div>
+            </section>
           )}
 
           {page === "settings" && (
