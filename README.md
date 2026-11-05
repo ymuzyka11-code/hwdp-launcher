@@ -36,13 +36,17 @@ Open **Releases** and download the Windows `.exe` installer attached to the **HW
 - Local hardware information scan
 - Mojang version manifest listing
 - Download of the selected Minecraft client JAR with SHA-1 verification
+- Native Modrinth project search (public catalog; opens project pages for file review)
 
 ## Not implemented yet
+
+The Mods screen currently searches Modrinth projects and links to CurseForge search. It does not yet download or install mod files. Review each project's game version and mod-loader compatibility on the provider page before using it.
 
 - Complete Minecraft installation (libraries, assets, natives and version-specific launch arguments)
 - Starting a Minecraft game process
 - Microsoft/Xbox/Minecraft account authentication
-- Modrinth and CurseForge browsing and installation
+- Direct CurseForge API integration and in-app mod installation (CurseForge requires an approved API key; the current build links to its catalog)
+- Mod installation into managed profiles
 - Modpack import/export, profile management and mod-content analysis
 - Signed production installer and automatic updates
 
