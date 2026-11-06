@@ -1,6 +1,8 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import "./App.css";
 import { dictionaries, type Lang, type TextKey } from "./i18n";
 
@@ -19,6 +21,7 @@ type HardwareInfo = {
 };
 
 type ModrinthProject = { projectId: string; slug: string; title: string; description: string; author: string; downloads: number; iconUrl: string | null; projectType: string };
+type Profile = { id: string; name: string; gameVersion: string; loader: string; createdAt: string };
 
 type MinecraftVersion = {
   id: string;
@@ -65,8 +68,115 @@ function App() {
   const [modResults, setModResults] = useState<ModrinthProject[]>([]);
   const [modLoading, setModLoading] = useState(false);
   const [modError, setModError] = useState("");
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profileName, setProfileName] = useState("");
+  const [profileVersion, setProfileVersion] = useState("1.21.1");
+  const [profileLoader, setProfileLoader] = useState("vanilla");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [launchingProfile, setLaunchingProfile] = useState<string | null>(null);
+  const [launchMessage, setLaunchMessage] = useState("");
 
   const t = (key: TextKey) => dictionaries[lang][key];
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<{ verificationUrl: string }>("microsoft-login-code", async (event) => {
+      try {
+        await openUrl(event.payload.verificationUrl);
+      } catch (error) {
+        setLoginError("Could not open Microsoft sign-in page: " + String(error));
+      }
+    }).then((stop) => {
+      if (cancelled) stop();
+      else unlisten = stop;
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
+
+  useEffect(() => {
+    void refreshAccountAndProfiles();
+  }, []);
+
+  async function refreshAccountAndProfiles() {
+    try {
+      const [name, list] = await Promise.all([
+        invoke<string | null>("get_microsoft_account_name"),
+        invoke<Profile[]>("list_profiles"),
+      ]);
+      setAccountName(name);
+      setProfiles(list);
+    } catch (error) {
+      setProfileError(String(error));
+    }
+  }
+
+  async function signInMicrosoft() {
+    setLoginBusy(true);
+    setLoginError("");
+    try {
+      const name = await invoke<string>("microsoft_login");
+      setAccountName(name);
+    } catch (error) {
+      setLoginError(String(error));
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function signOutMicrosoft() {
+    try {
+      await invoke("microsoft_logout");
+      setAccountName(null);
+    } catch (error) {
+      setLoginError(String(error));
+    }
+  }
+
+  async function createProfile() {
+    setProfileBusy(true);
+    setProfileError("");
+    try {
+      const profile = await invoke<Profile>("create_profile", {
+        name: profileName,
+        gameVersion: profileVersion,
+        loader: profileLoader,
+      });
+      setProfiles((current) => [...current, profile]);
+      setProfileName("");
+    } catch (error) {
+      setProfileError(String(error));
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  async function removeProfile(profileId: string) {
+    try {
+      await invoke("delete_profile", { profileId });
+      setProfiles((current) => current.filter((profile) => profile.id !== profileId));
+    } catch (error) {
+      setProfileError(String(error));
+    }
+  }
+
+  async function launchProfile(profileId: string) {
+    setLaunchingProfile(profileId);
+    setLaunchMessage("");
+    setProfileError("");
+    try {
+      const result = await invoke<string>("launch_profile", { profileId });
+      setLaunchMessage(result);
+    } catch (error) {
+      setProfileError(String(error));
+    } finally {
+      setLaunchingProfile(null);
+    }
+  }
 
   async function scanHardware() {
     setScanning(true);
@@ -249,11 +359,13 @@ function App() {
               </p>
 
               <button
-                disabled
-                className="mb-8 cursor-not-allowed rounded-lg bg-accent px-6 py-3 font-semibold text-white opacity-50"
+                onClick={() => profiles[0] && void launchProfile(profiles[0].id)}
+                disabled={!accountName || profiles.length === 0 || launchingProfile !== null}
+                className="mb-8 rounded-lg bg-accent px-6 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {t("play")}
+                {launchingProfile ? "Uruchamianie Minecraft..." : t("play")}
               </button>
+              {!accountName && <p className="mb-4 text-sm text-muted">Zaloguj się w zakładce Instancje, aby uruchomić grę.</p>}
 
               <section className="max-w-3xl">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -425,10 +537,54 @@ function App() {
   </section>
 )}
           {page === "instances" && (
-            <div>
-              <h1 className="mb-2 text-3xl font-bold">{t("instances")}</h1>
-              <p className="text-muted">{t("noInstances")}</p>
-            </div>
+            <section className="max-w-4xl space-y-6">
+              <div>
+                <h1 className="mb-2 text-3xl font-bold">{t("instances")}</h1>
+                <p className="text-muted">Konta Microsoft i niezależne profile Minecraft.</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-panel p-5">
+                <h2 className="mb-3 text-lg font-semibold">Konto Microsoft</h2>
+                {accountName ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><p className="font-semibold">{accountName}</p><p className="text-xs text-muted">Konto połączone</p></div>
+                    <button onClick={() => void signOutMicrosoft()} className="rounded-lg bg-bg px-4 py-2">Wyloguj</button>
+                  </div>
+                ) : (
+                  <button onClick={() => void signInMicrosoft()} disabled={loginBusy} className="rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-50">
+                    {loginBusy ? "Oczekiwanie na Microsoft..." : "Zaloguj przez Microsoft"}
+                  </button>
+                )}
+                {loginError && <p className="mt-3 break-words text-sm text-red-400">{loginError}</p>}
+              </div>
+              <div className="rounded-xl border border-white/10 bg-panel p-5">
+                <h2 className="mb-4 text-lg font-semibold">Utwórz profil</h2>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Nazwa profilu" className="rounded-lg bg-bg px-3 py-3 text-fg" />
+                  <input value={profileVersion} onChange={(e) => setProfileVersion(e.target.value)} placeholder="Wersja, np. 1.21.1" className="rounded-lg bg-bg px-3 py-3 text-fg" />
+                  <select value={profileLoader} onChange={(e) => setProfileLoader(e.target.value)} className="rounded-lg bg-bg px-3 py-3 text-fg">
+                    <option value="vanilla">Vanilla</option><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option>
+                  </select>
+                </div>
+                <button onClick={() => void createProfile()} disabled={profileBusy || !profileName.trim() || !profileVersion.trim()} className="mt-3 rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-50">
+                  {profileBusy ? "Tworzenie..." : "Utwórz profil"}
+                </button>
+              </div>
+              {profileError && <p className="break-words text-sm text-red-400">{profileError}</p>}
+              {launchMessage && <p className="text-sm text-green-400">{launchMessage}</p>}
+              <div className="space-y-3">
+                <h2 className="text-xl font-semibold">Twoje profile ({profiles.length})</h2>
+                {profiles.length === 0 && <p className="text-sm text-muted">Nie masz jeszcze profili. Utwórz pierwszy powyżej.</p>}
+                {profiles.map((profile) => (
+                  <article key={profile.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-panel p-4">
+                    <div><h3 className="font-semibold">{profile.name}</h3><p className="text-sm text-muted">Minecraft {profile.gameVersion} · {profile.loader}</p></div>
+                    <div className="flex gap-2">
+                      <button onClick={() => void launchProfile(profile.id)} disabled={!accountName || launchingProfile !== null} className="rounded-lg bg-accent px-4 py-2 font-semibold text-white disabled:opacity-50">{launchingProfile === profile.id ? "Uruchamianie..." : "Graj"}</button>
+                      <button onClick={() => void removeProfile(profile.id)} className="rounded-lg bg-bg px-3 py-2 text-sm">Usuń</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
           )}
 
           {page === "mods" && (
