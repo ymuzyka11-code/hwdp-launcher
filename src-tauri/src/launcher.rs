@@ -86,12 +86,10 @@ pub fn delete_profile(profile_id: String) -> Result<(), String> {
 pub async fn microsoft_login(app: tauri::AppHandle) -> Result<String, String> {
     use crust_core::authenticator::Authenticator;
     use tauri::Emitter;
-    // Public client ID approved for this HWDP Launcher application.
-    // CrustCore's Minecraft authentication flow uses the consumers authority
-    // for personal Microsoft accounts; the Entra directory ID is not the
-    // Minecraft authentication tenant.
-    const MICROSOFT_CLIENT_ID: &str = "ec272e6d-fecc-426b-9d7a-96c6f6b59e28";
-    let auth = Authenticator::with_client_id(MICROSOFT_CLIENT_ID)
+    // Use CrustCore's built-in Microsoft Live client configuration.
+    // A custom Entra client ID is not interchangeable with the official
+    // Minecraft launcher client and can be rejected by Microsoft's consent flow.
+    let auth = Authenticator::new()
         .map_err(|e| format!("Microsoft auth setup failed: {e}"))?;
     let flow = auth.device_code().await.map_err(|e| format!("Could not start Microsoft sign-in: {e}"))?;
     let verification_url = flow.verification_uri_complete();
