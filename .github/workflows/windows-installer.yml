@@ -45,6 +45,35 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
 
+      - name: Generate updater manifest
+        shell: pwsh
+        run: |
+          $bundle = "src-tauri/target/release/bundle/nsis"
+          $archive = Get-ChildItem $bundle -Filter "*.nsis.zip" | Select-Object -First 1
+          if (-not $archive) { throw "Tauri updater archive was not produced." }
+          $signaturePath = "$($archive.FullName).sig"
+          if (-not (Test-Path $signaturePath)) { throw "Updater signature is missing: $signaturePath" }
+          $signature = (Get-Content $signaturePath -Raw).Trim()
+          $version = (Get-Content "src-tauri/tauri.conf.json" -Raw | ConvertFrom-Json).version
+          if ("${{ github.ref }}" -eq "refs/heads/dev/developer-preview") {
+            $releaseTag = "developer-preview"
+          } elseif ("${{ github.ref }}" -eq "refs/heads/release/microsoft-launcher-integration") {
+            $releaseTag = "launcher-preview"
+          } else {
+            $releaseTag = "${{ github.ref_name }}"
+          }
+          $manifest = @{
+            version = $version
+            notes = "HWDP Launcher update"
+            pub_date = (Get-Date).ToUniversalTime().ToString("o")
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $signature
+                url = "https://github.com/ymuzyka11-code/hwdp-launcher/releases/download/$releaseTag/$($archive.Name)"
+              }
+            }
+          } | ConvertTo-Json -Depth 8
+          Set-Content -Path "$bundle/latest.json" -Value $manifest -Encoding utf8
       - name: Upload installer and updater files
         uses: actions/upload-artifact@v4
         with:
