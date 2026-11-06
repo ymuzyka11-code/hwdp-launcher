@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - dev/developer-preview
+      - release/microsoft-launcher-integration
     tags:
       - "v*"
   workflow_dispatch:
