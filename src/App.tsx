@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import Updater from "./Updater";
 import "./App.css";
 import { dictionaries, type Lang, type TextKey } from "./i18n";
 
@@ -350,6 +351,7 @@ function App() {
 
   return (
     <>
+      <Updater />
       {loading && (
         <div className="splash-screen">
           <div className="splash-logo">HWDP</div>
