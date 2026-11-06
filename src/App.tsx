@@ -115,6 +115,7 @@ function App() {
       setAccountName(name);
       setProfiles(list);
       setSelectedModProfile((current) => current || list[0]?.id || "");
+      if (list[0] && list[0].loader !== "vanilla") setSelectedModLoader(list[0].loader);
     } catch (error) {
       setProfileError(String(error));
     }
@@ -152,6 +153,8 @@ function App() {
         loader: profileLoader,
       });
       setProfiles((current) => [...current, profile]);
+      setSelectedModProfile(profile.id);
+      if (profile.loader !== "vanilla") setSelectedModLoader(profile.loader);
       setProfileName("");
     } catch (error) {
       setProfileError(String(error));
@@ -636,7 +639,7 @@ function App() {
                   </select>
                 </label>
                 <label className="text-sm text-muted">Loader
-                  <select value={selectedModLoader} onChange={(event) => { setSelectedModLoader(event.target.value); setModResults([]); }} className="mt-1 w-full rounded-lg bg-panel px-3 py-3 text-fg">
+                  <select value={selectedModLoader} disabled className="mt-1 w-full rounded-lg bg-panel px-3 py-3 text-fg disabled:opacity-80">
                     <option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option>
                   </select>
                 </label>
