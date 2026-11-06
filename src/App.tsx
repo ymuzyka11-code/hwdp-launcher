@@ -68,6 +68,10 @@ function App() {
   const [modResults, setModResults] = useState<ModrinthProject[]>([]);
   const [modLoading, setModLoading] = useState(false);
   const [modError, setModError] = useState("");
+  const [selectedModProfile, setSelectedModProfile] = useState("");
+  const [selectedModLoader, setSelectedModLoader] = useState("fabric");
+  const [installingProject, setInstallingProject] = useState<string | null>(null);
+  const [installMessage, setInstallMessage] = useState("");
   const [accountName, setAccountName] = useState<string | null>(null);
   const [loginBusy, setLoginBusy] = useState(false);
   const [loginError, setLoginError] = useState("");
@@ -110,6 +114,7 @@ function App() {
       ]);
       setAccountName(name);
       setProfiles(list);
+      setSelectedModProfile((current) => current || list[0]?.id || "");
     } catch (error) {
       setProfileError(String(error));
     }
@@ -200,13 +205,19 @@ function App() {
       setModError("");
       return;
     }
+    const profile = profiles.find((item) => item.id === selectedModProfile);
+    if (!profile) {
+      setModError("Najpierw utwórz lub wybierz instancję Minecraft.");
+      return;
+    }
     setModLoading(true);
     setModError("");
+    setInstallMessage("");
     try {
       const results = await invoke<ModrinthProject[]>("search_modrinth_projects", {
         query,
-        gameVersion: selectedVersion || null,
-        loader: null,
+        gameVersion: profile.gameVersion,
+        loader: selectedModLoader,
       });
       setModResults(results);
     } catch (error) {
@@ -214,6 +225,27 @@ function App() {
       setModResults([]);
     } finally {
       setModLoading(false);
+    }
+  }
+
+  async function installMod(projectId: string) {
+    if (!selectedModProfile) {
+      setModError("Wybierz instancję przed instalacją moda.");
+      return;
+    }
+    setInstallingProject(projectId);
+    setModError("");
+    setInstallMessage("");
+    try {
+      const installed = await invoke<string>("install_modrinth_project", {
+        profileId: selectedModProfile,
+        projectId,
+      });
+      setInstallMessage("Zainstalowano: " + installed);
+    } catch (error) {
+      setModError(String(error));
+    } finally {
+      setInstallingProject(null);
     }
   }
 
@@ -590,12 +622,32 @@ function App() {
           {page === "mods" && (
             <section className="max-w-5xl">
               <h1 className="mb-2 text-3xl font-bold">{t("mods")}</h1>
-              <p className="mb-6 text-muted">{t("modrinthIntro")}</p>
+              <p className="mb-6 text-muted">Wyszukuj mody Modrinth i instaluj zgodne wersje bezpośrednio w wybranej instancji.</p>
+              <div className="mb-4 grid gap-3 sm:grid-cols-2">
+                <label className="text-sm text-muted">Instancja docelowa
+                  <select value={selectedModProfile} onChange={(event) => {
+                    const next = profiles.find((item) => item.id === event.target.value);
+                    setSelectedModProfile(event.target.value);
+                    if (next && next.loader !== "vanilla") setSelectedModLoader(next.loader);
+                    setModResults([]);
+                  }} className="mt-1 w-full rounded-lg bg-panel px-3 py-3 text-fg">
+                    <option value="">Wybierz instancję</option>
+                    {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.gameVersion} · {profile.loader}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm text-muted">Loader
+                  <select value={selectedModLoader} onChange={(event) => { setSelectedModLoader(event.target.value); setModResults([]); }} className="mt-1 w-full rounded-lg bg-panel px-3 py-3 text-fg">
+                    <option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option>
+                  </select>
+                </label>
+              </div>
+              {!profiles.length && <p className="mb-4 text-sm text-amber-400">Najpierw utwórz instancję w zakładce Instancje.</p>}
               <form className="mb-6 flex gap-2" onSubmit={(event) => { event.preventDefault(); void searchMods(); }}>
                 <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder={t("searchMods")} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-panel px-4 py-3 text-fg" />
                 <button type="submit" disabled={modLoading || !modQuery.trim()} className="rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-50">{modLoading ? t("searching") : t("search")}</button>
               </form>
-              {modError && <p className="mb-4 text-red-400">{modError}</p>}
+              {modError && <p className="mb-4 break-words text-red-400">{modError}</p>}
+              {installMessage && <p className="mb-4 text-sm text-green-400">{installMessage}</p>}
               {!modLoading && modResults.length === 0 && <p className="mb-5 text-sm text-muted">{t("modSearchHint")}</p>}
               <div className="grid gap-3 md:grid-cols-2">
                 {modResults.map((mod) => (
@@ -608,7 +660,12 @@ function App() {
                       </div>
                     </div>
                     <p className="mt-3 line-clamp-3 text-sm text-muted">{mod.description}</p>
-                    <a className="mt-4 inline-block text-sm font-semibold text-accent hover:underline" href={`https://modrinth.com/mod/${encodeURIComponent(mod.slug)}`} target="_blank" rel="noreferrer">{t("openModrinth")}</a>
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <button onClick={() => void installMod(mod.projectId)} disabled={!selectedModProfile || installingProject !== null} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                        {installingProject === mod.projectId ? "Instalowanie..." : "Zainstaluj w instancji"}
+                      </button>
+                      <a className="text-sm font-semibold text-accent hover:underline" href={`https://modrinth.com/mod/${encodeURIComponent(mod.slug)}`} target="_blank" rel="noreferrer">{t("openModrinth")}</a>
+                    </div>
                   </article>
                 ))}
               </div>
