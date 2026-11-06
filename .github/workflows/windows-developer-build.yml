@@ -26,7 +26,7 @@ jobs:
         with:
           workspaces: src-tauri
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm install
       - name: Build Windows installer
         run: npm run tauri build -- --bundles nsis
       - name: Upload installer
