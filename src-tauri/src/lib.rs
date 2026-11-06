@@ -441,6 +441,7 @@ pub fn run() {
             launcher::delete_profile,
             launcher::launch_profile,
             launcher::install_modrinth_version,
+            launcher::install_modrinth_project,
             launcher::search_curseforge,
             launcher::install_curseforge_file
         ])
