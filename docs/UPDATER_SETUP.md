@@ -1,30 +1,31 @@
 # HWDP Launcher signed auto-updates
 
-Tauri's updater requires signed update bundles. Do not disable signature verification and never commit the private signing key.
+The launcher now checks for signed Windows updates at startup. Updates are downloaded and installed by the Tauri updater plugin, then the app restarts. Existing installations need one replacement install made with this signing key before they can self-update.
 
-## Generate the permanent key pair (Windows PowerShell)
+## GitHub Actions secrets
 
-Run this once from the repository root:
+In GitHub repository Settings → Secrets and variables → Actions → Repository secrets, configure:
 
-```powershell
-New-Item -ItemType Directory -Force "$env:USERPROFILE\.tauri" | Out-Null
-npm run tauri signer generate -- -w "$env:USERPROFILE\.tauri\hwdp-launcher.key"
-```
+- `TAURI_SIGNING_PRIVATE_KEY`: the complete contents of your private `hwdp-launcher.key` file.
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: the password used when generating that key (leave unset only if the key has no password).
 
-Choose a password and keep it safe. The command prints a public key and writes the private key to the file above.
+The matching public key is embedded in `src-tauri/tauri.conf.json`. It is safe to publish. Never commit, paste into chat, or upload the private key.
 
-## Configure GitHub Actions
+## Build and release flow
 
-In GitHub repository Settings → Secrets and variables → Actions:
+Pushing to `release/microsoft-launcher-integration` builds a signed NSIS installer and updater archive, generates `latest.json`, and updates the GitHub prerelease named `launcher-preview`. The updater checks:
 
-- Add secret `TAURI_SIGNING_PRIVATE_KEY` containing the complete contents of `hwdp-launcher.key`.
-- Add secret `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` containing the password (if one was set).
-- Add repository variable `TAURI_SIGNING_PUBLIC_KEY` containing the public key printed by the command.
+`https://github.com/ymuzyka11-code/hwdp-launcher/releases/latest/download/latest.json`
 
-Never send or publish the private key. The public key is safe to share.
+The release contains the normal `.exe`, signed `.nsis.zip` updater bundle, `.sig` signature, and manifest. Versioned tags named `vX.Y.Z` publish versioned releases.
 
-## Finish the updater integration
+## First installation required
 
-After the public key is available, embed it in `src-tauri/tauri.conf.json`, add the Tauri updater Rust/JS plugins and updater permission, and enable `bundle.createUpdaterArtifacts`. The Windows workflow must publish the signed NSIS updater bundle, its `.sig` file, and the updater manifest to the `launcher-preview` GitHub Release.
+A launcher installed before signed updating was enabled cannot magically acquire the updater plugin. Install the new signed preview installer once. After that, future compatible releases can install from inside the launcher without downloading and running the setup EXE manually.
 
-The release workflow now publishes the latest ordinary Windows installer to that preview release. Existing installations will not self-update until the signed updater integration above is completed and a new signed installer is installed once.
+## If an update does not appear
+
+- Confirm both signing secrets exist and match the public key in the config.
+- Open the latest GitHub Actions run and check the Windows installer job.
+- Confirm the `launcher-preview` release contains `latest.json`, a `.nsis.zip`, and its matching `.sig`.
+- Do not replace the signing key after distributing an installer. Changing it breaks signature verification for already-installed clients.
