@@ -363,8 +363,8 @@ function App() {
         </div>
       )}
 
-      <div className="flex h-full">
-        <aside className="flex w-56 flex-col gap-1 bg-panel p-4">
+      <div className="launcher-shell flex h-full">
+        <aside className="launcher-sidebar flex w-56 flex-col gap-1 bg-panel p-4">
           <div className="mb-6 text-lg font-bold text-accent">
             {t("appName")}
           </div>
@@ -384,7 +384,7 @@ function App() {
           ))}
         </aside>
 
-        <main className="flex-1 overflow-auto p-8">
+        <main className="launcher-main flex-1 overflow-auto p-8">
           {page === "home" && (
             <div>
               <h1 className="mb-2 text-3xl font-bold">
@@ -612,8 +612,8 @@ function App() {
                 <h2 className="text-xl font-semibold">Twoje profile ({profiles.length})</h2>
                 {profiles.length === 0 && <p className="text-sm text-muted">Nie masz jeszcze profili. Utwórz pierwszy powyżej.</p>}
                 {profiles.map((profile) => (
-                  <article key={profile.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-panel p-4">
-                    <div><h3 className="font-semibold">{profile.name}</h3><p className="text-sm text-muted">Minecraft {profile.gameVersion} · {profile.loader}</p></div>
+                  <article key={profile.id} className="instance-card flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-panel p-4">
+                    <div className="instance-identity"><span className="instance-mark">MC</span><div><h3 className="font-semibold">{profile.name}</h3><p className="text-sm text-muted">Minecraft {profile.gameVersion} · {profile.loader}</p><small>Profil lokalny · {new Date(profile.createdAt).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-US")}</small></div></div>
                     <div className="flex gap-2">
                       <button onClick={() => void launchProfile(profile.id)} disabled={!accountName || launchingProfile !== null} className="rounded-lg bg-accent px-4 py-2 font-semibold text-white disabled:opacity-50">{launchingProfile === profile.id ? "Uruchamianie..." : "Graj"}</button>
                       <button onClick={() => void removeProfile(profile.id)} className="rounded-lg bg-bg px-3 py-2 text-sm">Usuń</button>
