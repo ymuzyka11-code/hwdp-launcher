@@ -1,6 +1,6 @@
 [package]
 name = "hwdp-launcher"
-version = "0.3.0"
+version = "0.3.1"
 description = "HWDP Launcher"
 authors = ["HWDP Launcher contributors"]
 edition = "2024"
