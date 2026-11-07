@@ -186,10 +186,10 @@ export default function SkinStudio() {
             <span className="skin-avatar-art" style={{ background: avatar.color }}>{avatar.glyph}</span><span>{avatar.name}</span>
           </button>)}
           {skin && <button className={`skin-avatar-choice ${selectedAvatar === "skin-current" ? "is-selected" : ""}`} onClick={() => setSelectedAvatar("skin-current")}><span className="skin-avatar-art skin-avatar-texture" style={{ backgroundImage: `url(${skin.dataUrl})` }} /><span>{skin.name}</span></button>}
-          {avatars.map((avatar) => <button key={avatar.id} className={`skin-avatar-choice ${selectedAvatar === avatar.id ? "is-selected" : ""}`} onClick={() => setSelectedAvatar(avatar.id)}>
+          {avatars.map((avatar) => <div key={avatar.id} role="button" tabIndex={0} className={`skin-avatar-choice ${selectedAvatar === avatar.id ? "is-selected" : ""}`} onClick={() => setSelectedAvatar(avatar.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") setSelectedAvatar(avatar.id); }}>
             <img className="skin-avatar-art" src={avatar.dataUrl} alt="" /><span title={avatar.name}>{avatar.name}</span>
             <button className="skin-avatar-delete" aria-label={`Usuń awatar ${avatar.name}`} onClick={(event) => { event.stopPropagation(); setAvatars((current) => current.filter((item) => item.id !== avatar.id)); if (selectedAvatar === avatar.id) setSelectedAvatar("steve"); }}>×</button>
-          </button>)}
+          </div>)}
         </div>
         <div className="skin-selected-avatar"><span>Wybrany awatar</span><strong>{activeAvatar?.name ?? (selectedAvatar === "skin-current" ? skin?.name : PRESETS.find((item) => item.id === selectedAvatar)?.name ?? "Steve")}</strong></div>
       </article>
