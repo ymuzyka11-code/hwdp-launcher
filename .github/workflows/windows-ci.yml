@@ -1,0 +1,29 @@
+name: Windows launcher CI
+
+on:
+  pull_request:
+    branches: [dev/developer-preview, main]
+  push:
+    branches: [dev/developer-preview, release/microsoft-launcher-integration]
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm install
+      - run: npm run build
+
+  rust:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo check --manifest-path src-tauri/Cargo.toml

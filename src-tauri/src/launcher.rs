@@ -86,7 +86,11 @@ pub fn delete_profile(profile_id: String) -> Result<(), String> {
 pub async fn microsoft_login(app: tauri::AppHandle) -> Result<String, String> {
     use crust_core::authenticator::Authenticator;
     use tauri::Emitter;
-    let auth = Authenticator::new().map_err(|e| format!("Microsoft auth setup failed: {e}"))?;
+    // Use CrustCore's built-in Microsoft Live client configuration.
+    // A custom Entra client ID is not interchangeable with the official
+    // Minecraft launcher client and can be rejected by Microsoft's consent flow.
+    let auth = Authenticator::new()
+        .map_err(|e| format!("Microsoft auth setup failed: {e}"))?;
     let flow = auth.device_code().await.map_err(|e| format!("Could not start Microsoft sign-in: {e}"))?;
     let verification_url = flow.verification_uri_complete();
     app.emit("microsoft-login-code", serde_json::json!({
@@ -218,6 +222,59 @@ pub async fn install_modrinth_version(profile_id: String, version_id: String) ->
         .build().map_err(|e| e.to_string())?;
     let mods_dir = data_dir()?.join("game").join("instances").join(&profile.id).join("mods");
     download_modrinth_version(&client, &version_id, &mods_dir).await
+}
+
+
+#[derive(Deserialize)]
+struct MrVersionSummary {
+    id: String,
+}
+
+#[tauri::command]
+pub async fn install_modrinth_project(
+    profile_id: String,
+    project_id: String,
+) -> Result<String, String> {
+    let id = safe_name(&profile_id)?;
+    let profile = read_profiles()?
+        .into_iter()
+        .find(|p| p.id == id)
+        .ok_or_else(|| "Profile not found.".to_string())?;
+
+    if profile.loader == "vanilla" {
+        return Err("Choose a Fabric, Forge, NeoForge or Quilt profile before installing mods.".into());
+    }
+    if project_id.len() < 3 || project_id.len() > 64
+        || !project_id.chars().all(|c| c.is_ascii_alphanumeric())
+    {
+        return Err("Invalid Modrinth project ID.".into());
+    }
+
+    let client = reqwest::Client::builder()
+        .user_agent("HWDP-Launcher/0.3.0 (https://github.com/ymuzyka11-code/hwdp-launcher)")
+        .build()
+        .map_err(|e| e.to_string())?;
+    let game_versions = serde_json::to_string(&vec![profile.game_version.clone()])
+        .map_err(|e| e.to_string())?;
+    let loaders = serde_json::to_string(&vec![profile.loader.clone()])
+        .map_err(|e| e.to_string())?;
+    let endpoint = format!("https://api.modrinth.com/v2/project/{project_id}/version");
+    let versions: Vec<MrVersionSummary> = client
+        .get(endpoint)
+        .query(&[("game_versions", game_versions.as_str()), ("loaders", loaders.as_str())])
+        .send()
+        .await
+        .map_err(|e| format!("Modrinth connection failed: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("Could not find a compatible mod version: {e}"))?
+        .json()
+        .await
+        .map_err(|e| format!("Invalid Modrinth response: {e}"))?;
+
+    let version = versions.first()
+        .ok_or_else(|| format!("No version of this mod supports Minecraft {} with {}.", profile.game_version, profile.loader))?;
+    let mods_dir = data_dir()?.join("game").join("instances").join(&profile.id).join("mods");
+    download_modrinth_version(&client, &version.id, &mods_dir).await
 }
 
 #[derive(Deserialize)]

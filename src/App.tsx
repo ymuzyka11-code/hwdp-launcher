@@ -1,6 +1,9 @@
 
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import Updater from "./Updater";
 import "./App.css";
 import { dictionaries, type Lang, type TextKey } from "./i18n";
 
@@ -19,6 +22,7 @@ type HardwareInfo = {
 };
 
 type ModrinthProject = { projectId: string; slug: string; title: string; description: string; author: string; downloads: number; iconUrl: string | null; projectType: string };
+type Profile = { id: string; name: string; gameVersion: string; loader: string; createdAt: string };
 
 type MinecraftVersion = {
   id: string;
@@ -65,8 +69,123 @@ function App() {
   const [modResults, setModResults] = useState<ModrinthProject[]>([]);
   const [modLoading, setModLoading] = useState(false);
   const [modError, setModError] = useState("");
+  const [selectedModProfile, setSelectedModProfile] = useState("");
+  const [selectedModLoader, setSelectedModLoader] = useState("fabric");
+  const [installingProject, setInstallingProject] = useState<string | null>(null);
+  const [installMessage, setInstallMessage] = useState("");
+  const [accountName, setAccountName] = useState<string | null>(null);
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginError, setLoginError] = useState("");
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profileName, setProfileName] = useState("");
+  const [profileVersion, setProfileVersion] = useState("1.21.1");
+  const [profileLoader, setProfileLoader] = useState("vanilla");
+  const [profileBusy, setProfileBusy] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [launchingProfile, setLaunchingProfile] = useState<string | null>(null);
+  const [launchMessage, setLaunchMessage] = useState("");
 
   const t = (key: TextKey) => dictionaries[lang][key];
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let cancelled = false;
+    listen<{ verificationUrl: string }>("microsoft-login-code", async (event) => {
+      try {
+        await openUrl(event.payload.verificationUrl);
+      } catch (error) {
+        setLoginError("Could not open Microsoft sign-in page: " + String(error));
+      }
+    }).then((stop) => {
+      if (cancelled) stop();
+      else unlisten = stop;
+    });
+    return () => { cancelled = true; unlisten?.(); };
+  }, []);
+
+  useEffect(() => {
+    void refreshAccountAndProfiles();
+  }, []);
+
+  async function refreshAccountAndProfiles() {
+    try {
+      const [name, list] = await Promise.all([
+        invoke<string | null>("get_microsoft_account_name"),
+        invoke<Profile[]>("list_profiles"),
+      ]);
+      setAccountName(name);
+      setProfiles(list);
+      setSelectedModProfile((current) => current || list[0]?.id || "");
+      if (list[0] && list[0].loader !== "vanilla") setSelectedModLoader(list[0].loader);
+    } catch (error) {
+      setProfileError(String(error));
+    }
+  }
+
+  async function signInMicrosoft() {
+    setLoginBusy(true);
+    setLoginError("");
+    try {
+      const name = await invoke<string>("microsoft_login");
+      setAccountName(name);
+    } catch (error) {
+      setLoginError(String(error));
+    } finally {
+      setLoginBusy(false);
+    }
+  }
+
+  async function signOutMicrosoft() {
+    try {
+      await invoke("microsoft_logout");
+      setAccountName(null);
+    } catch (error) {
+      setLoginError(String(error));
+    }
+  }
+
+  async function createProfile() {
+    setProfileBusy(true);
+    setProfileError("");
+    try {
+      const profile = await invoke<Profile>("create_profile", {
+        name: profileName,
+        gameVersion: profileVersion,
+        loader: profileLoader,
+      });
+      setProfiles((current) => [...current, profile]);
+      setSelectedModProfile(profile.id);
+      if (profile.loader !== "vanilla") setSelectedModLoader(profile.loader);
+      setProfileName("");
+    } catch (error) {
+      setProfileError(String(error));
+    } finally {
+      setProfileBusy(false);
+    }
+  }
+
+  async function removeProfile(profileId: string) {
+    try {
+      await invoke("delete_profile", { profileId });
+      setProfiles((current) => current.filter((profile) => profile.id !== profileId));
+    } catch (error) {
+      setProfileError(String(error));
+    }
+  }
+
+  async function launchProfile(profileId: string) {
+    setLaunchingProfile(profileId);
+    setLaunchMessage("");
+    setProfileError("");
+    try {
+      const result = await invoke<string>("launch_profile", { profileId });
+      setLaunchMessage(result);
+    } catch (error) {
+      setProfileError(String(error));
+    } finally {
+      setLaunchingProfile(null);
+    }
+  }
 
   async function scanHardware() {
     setScanning(true);
@@ -90,13 +209,19 @@ function App() {
       setModError("");
       return;
     }
+    const profile = profiles.find((item) => item.id === selectedModProfile);
+    if (!profile) {
+      setModError("Najpierw utwórz lub wybierz instancję Minecraft.");
+      return;
+    }
     setModLoading(true);
     setModError("");
+    setInstallMessage("");
     try {
       const results = await invoke<ModrinthProject[]>("search_modrinth_projects", {
         query,
-        gameVersion: selectedVersion || null,
-        loader: null,
+        gameVersion: profile.gameVersion,
+        loader: selectedModLoader,
       });
       setModResults(results);
     } catch (error) {
@@ -106,6 +231,34 @@ function App() {
       setModLoading(false);
     }
   }
+
+  async function installMod(projectId: string) {
+    if (!selectedModProfile) {
+      setModError("Wybierz instancję przed instalacją moda.");
+      return;
+    }
+    setInstallingProject(projectId);
+    setModError("");
+    setInstallMessage("");
+    try {
+      const installed = await invoke<string>("install_modrinth_project", {
+        profileId: selectedModProfile,
+        projectId,
+      });
+      setInstallMessage("Zainstalowano: " + installed);
+    } catch (error) {
+      setModError(String(error));
+    } finally {
+      setInstallingProject(null);
+    }
+  }
+
+  // Live search: wait briefly after typing and refresh results for the selected instance.
+  useEffect(() => {
+    if (page !== "mods" || !modQuery.trim() || !selectedModProfile) return;
+    const timer = window.setTimeout(() => { void searchMods(); }, 350);
+    return () => window.clearTimeout(timer);
+  }, [modQuery, selectedModProfile, selectedModLoader, page]);
 
   async function loadVersions() {
   setLoadingVersions(true);
@@ -205,6 +358,7 @@ function App() {
 
   return (
     <>
+      <Updater />
       {loading && (
         <div className="splash-screen">
           <div className="splash-logo">HWDP</div>
@@ -216,8 +370,8 @@ function App() {
         </div>
       )}
 
-      <div className="flex h-full">
-        <aside className="flex w-56 flex-col gap-1 bg-panel p-4">
+      <div className="launcher-shell flex h-full">
+        <aside className="launcher-sidebar flex w-56 flex-col gap-1 bg-panel p-4">
           <div className="mb-6 text-lg font-bold text-accent">
             {t("appName")}
           </div>
@@ -237,7 +391,7 @@ function App() {
           ))}
         </aside>
 
-        <main className="flex-1 overflow-auto p-8">
+        <main className="launcher-main flex-1 overflow-auto p-8">
           {page === "home" && (
             <div>
               <h1 className="mb-2 text-3xl font-bold">
@@ -249,11 +403,13 @@ function App() {
               </p>
 
               <button
-                disabled
-                className="mb-8 cursor-not-allowed rounded-lg bg-accent px-6 py-3 font-semibold text-white opacity-50"
+                onClick={() => profiles[0] && void launchProfile(profiles[0].id)}
+                disabled={!accountName || profiles.length === 0 || launchingProfile !== null}
+                className="mb-8 rounded-lg bg-accent px-6 py-3 font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {t("play")}
+                {launchingProfile ? "Uruchamianie Minecraft..." : t("play")}
               </button>
+              {!accountName && <p className="mb-4 text-sm text-muted">Zaloguj się w zakładce Instancje, aby uruchomić grę.</p>}
 
               <section className="max-w-3xl">
                 <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -425,21 +581,85 @@ function App() {
   </section>
 )}
           {page === "instances" && (
-            <div>
-              <h1 className="mb-2 text-3xl font-bold">{t("instances")}</h1>
-              <p className="text-muted">{t("noInstances")}</p>
-            </div>
+            <section className="max-w-4xl space-y-6">
+              <div>
+                <h1 className="mb-2 text-3xl font-bold">{t("instances")}</h1>
+                <p className="text-muted">Konta Microsoft i niezależne profile Minecraft.</p>
+              </div>
+              <div className="rounded-xl border border-white/10 bg-panel p-5">
+                <h2 className="mb-3 text-lg font-semibold">Konto Microsoft</h2>
+                {accountName ? (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div><p className="font-semibold">{accountName}</p><p className="text-xs text-muted">Konto połączone</p></div>
+                    <button onClick={() => void signOutMicrosoft()} className="rounded-lg bg-bg px-4 py-2">Wyloguj</button>
+                  </div>
+                ) : (
+                  <button onClick={() => void signInMicrosoft()} disabled={loginBusy} className="rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-50">
+                    {loginBusy ? "Oczekiwanie na Microsoft..." : "Zaloguj przez Microsoft"}
+                  </button>
+                )}
+                {loginError && <p className="mt-3 break-words text-sm text-red-400">{loginError}</p>}
+              </div>
+              <div className="rounded-xl border border-white/10 bg-panel p-5">
+                <h2 className="mb-4 text-lg font-semibold">Utwórz profil</h2>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <input value={profileName} onChange={(e) => setProfileName(e.target.value)} placeholder="Nazwa profilu" className="rounded-lg bg-bg px-3 py-3 text-fg" />
+                  <input value={profileVersion} onChange={(e) => setProfileVersion(e.target.value)} placeholder="Wersja, np. 1.21.1" className="rounded-lg bg-bg px-3 py-3 text-fg" />
+                  <select value={profileLoader} onChange={(e) => setProfileLoader(e.target.value)} className="rounded-lg bg-bg px-3 py-3 text-fg">
+                    <option value="vanilla">Vanilla</option><option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option>
+                  </select>
+                </div>
+                <button onClick={() => void createProfile()} disabled={profileBusy || !profileName.trim() || !profileVersion.trim()} className="mt-3 rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-50">
+                  {profileBusy ? "Tworzenie..." : "Utwórz profil"}
+                </button>
+              </div>
+              {profileError && <p className="break-words text-sm text-red-400">{profileError}</p>}
+              {launchMessage && <p className="text-sm text-green-400">{launchMessage}</p>}
+              <div className="space-y-3">
+                <h2 className="text-xl font-semibold">Twoje profile ({profiles.length})</h2>
+                {profiles.length === 0 && <p className="text-sm text-muted">Nie masz jeszcze profili. Utwórz pierwszy powyżej.</p>}
+                {profiles.map((profile) => (
+                  <article key={profile.id} className="instance-card flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-panel p-4">
+                    <div className="instance-identity"><span className="instance-mark">MC</span><div><h3 className="font-semibold">{profile.name}</h3><p className="text-sm text-muted">Minecraft {profile.gameVersion} · {profile.loader}</p><small>Profil lokalny · {new Date(profile.createdAt).toLocaleDateString(lang === "pl" ? "pl-PL" : "en-US")}</small></div></div>
+                    <div className="flex gap-2">
+                      <button onClick={() => void launchProfile(profile.id)} disabled={!accountName || launchingProfile !== null} className="rounded-lg bg-accent px-4 py-2 font-semibold text-white disabled:opacity-50">{launchingProfile === profile.id ? "Uruchamianie..." : "Graj"}</button>
+                      <button onClick={() => void removeProfile(profile.id)} className="rounded-lg bg-bg px-3 py-2 text-sm">Usuń</button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
           )}
 
           {page === "mods" && (
             <section className="max-w-5xl">
               <h1 className="mb-2 text-3xl font-bold">{t("mods")}</h1>
-              <p className="mb-6 text-muted">{t("modrinthIntro")}</p>
+              <p className="mb-6 text-muted">Wyszukuj mody Modrinth i instaluj zgodne wersje bezpośrednio w wybranej instancji.</p>
+              <div className="mb-4 grid gap-3 sm:grid-cols-2">
+                <label className="text-sm text-muted">Instancja docelowa
+                  <select value={selectedModProfile} onChange={(event) => {
+                    const next = profiles.find((item) => item.id === event.target.value);
+                    setSelectedModProfile(event.target.value);
+                    if (next && next.loader !== "vanilla") setSelectedModLoader(next.loader);
+                    setModResults([]);
+                  }} className="mt-1 w-full rounded-lg bg-panel px-3 py-3 text-fg">
+                    <option value="">Wybierz instancję</option>
+                    {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name} · {profile.gameVersion} · {profile.loader}</option>)}
+                  </select>
+                </label>
+                <label className="text-sm text-muted">Loader
+                  <select value={selectedModLoader} onChange={(event) => { setSelectedModLoader(event.target.value); setModResults([]); }} className="mt-1 w-full rounded-lg bg-panel px-3 py-3 text-fg">
+                    <option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option>
+                  </select>
+                </label>
+              </div>
+              {!profiles.length && <p className="mb-4 text-sm text-amber-400">Najpierw utwórz instancję w zakładce Instancje.</p>}
               <form className="mb-6 flex gap-2" onSubmit={(event) => { event.preventDefault(); void searchMods(); }}>
                 <input value={modQuery} onChange={(event) => setModQuery(event.target.value)} placeholder={t("searchMods")} className="min-w-0 flex-1 rounded-lg border border-white/10 bg-panel px-4 py-3 text-fg" />
                 <button type="submit" disabled={modLoading || !modQuery.trim()} className="rounded-lg bg-accent px-5 py-3 font-semibold text-white disabled:opacity-50">{modLoading ? t("searching") : t("search")}</button>
               </form>
-              {modError && <p className="mb-4 text-red-400">{modError}</p>}
+              {modError && <p className="mb-4 break-words text-red-400">{modError}</p>}
+              {installMessage && <p className="mb-4 text-sm text-green-400">{installMessage}</p>}
               {!modLoading && modResults.length === 0 && <p className="mb-5 text-sm text-muted">{t("modSearchHint")}</p>}
               <div className="grid gap-3 md:grid-cols-2">
                 {modResults.map((mod) => (
@@ -452,7 +672,12 @@ function App() {
                       </div>
                     </div>
                     <p className="mt-3 line-clamp-3 text-sm text-muted">{mod.description}</p>
-                    <a className="mt-4 inline-block text-sm font-semibold text-accent hover:underline" href={`https://modrinth.com/mod/${encodeURIComponent(mod.slug)}`} target="_blank" rel="noreferrer">{t("openModrinth")}</a>
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <button onClick={() => void installMod(mod.projectId)} disabled={!selectedModProfile || installingProject !== null} className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                        {installingProject === mod.projectId ? "Instalowanie..." : "Zainstaluj w instancji"}
+                      </button>
+                      <a className="text-sm font-semibold text-accent hover:underline" href={`https://modrinth.com/mod/${encodeURIComponent(mod.slug)}`} target="_blank" rel="noreferrer">{t("openModrinth")}</a>
+                    </div>
                   </article>
                 ))}
               </div>
