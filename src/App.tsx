@@ -2,9 +2,10 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
+import SkinStudio from "./SkinStudio";
 import { dictionaries, type Lang, type TextKey } from "./i18n";
 
-type Page = "home" | "instances" | "mods" | "settings" | "minecraft";
+type Page = "home" | "instances" | "mods" | "settings" | "minecraft" | "skins";
 type Theme = "dark" | "light" | "amoled";
 
 type HardwareInfo = {
@@ -164,6 +165,7 @@ function App() {
   { id: "minecraft", label: "minecraft" },
   { id: "instances", label: "instances" },
   { id: "mods", label: "mods" },
+  { id: "skins", label: "skins" },
   { id: "settings", label: "settings" },
 ];
 
@@ -407,6 +409,8 @@ function App() {
               <p className="text-muted">{t("modsSoon")}</p>
             </div>
           )}
+
+          {page === "skins" && <SkinStudio />}
 
           {page === "settings" && (
             <div className="max-w-md">
