@@ -253,6 +253,13 @@ function App() {
     }
   }
 
+  // Live search: wait briefly after typing and refresh results for the selected instance.
+  useEffect(() => {
+    if (page !== "mods" || !modQuery.trim() || !selectedModProfile) return;
+    const timer = window.setTimeout(() => { void searchMods(); }, 350);
+    return () => window.clearTimeout(timer);
+  }, [modQuery, selectedModProfile, selectedModLoader, page]);
+
   async function loadVersions() {
   setLoadingVersions(true);
   setVersionsError("");
@@ -641,7 +648,7 @@ function App() {
                   </select>
                 </label>
                 <label className="text-sm text-muted">Loader
-                  <select value={selectedModLoader} disabled className="mt-1 w-full rounded-lg bg-panel px-3 py-3 text-fg disabled:opacity-80">
+                  <select value={selectedModLoader} onChange={(event) => { setSelectedModLoader(event.target.value); setModResults([]); }} className="mt-1 w-full rounded-lg bg-panel px-3 py-3 text-fg">
                     <option value="fabric">Fabric</option><option value="forge">Forge</option><option value="neoforge">NeoForge</option><option value="quilt">Quilt</option>
                   </select>
                 </label>
